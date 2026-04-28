@@ -692,9 +692,74 @@ export default function ZeldaGame() {
         )}
       </div>
 
+      {/* Toast */}
+      {hud.toast && (
+        <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-foreground bg-card/80 px-3 py-1.5 rounded border border-border">
+          {hud.toast}
+        </div>
+      )}
+
+      {/* Wardrobe */}
+      <div className="w-full max-w-[640px]">
+        <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground mb-2 text-center">
+          Wardrobe
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {(Object.keys(TUNICS) as TunicId[]).map((id, i) => {
+            const t = TUNICS[id];
+            const owned = hud.inventory.includes(id);
+            const equipped = hud.tunic === id;
+            return (
+              <button
+                key={id}
+                onClick={() => owned && equipTunic(id)}
+                disabled={!owned}
+                className={[
+                  "group relative flex flex-col items-center gap-1 rounded p-2 border transition-all",
+                  equipped
+                    ? "border-foreground bg-card"
+                    : owned
+                    ? "border-border bg-card/60 hover:border-foreground/60 hover:bg-card cursor-pointer"
+                    : "border-border/40 bg-card/30 opacity-50 cursor-not-allowed",
+                ].join(" ")}
+                title={owned ? `${t.name} — ${t.perk}` : "Not yet found"}
+              >
+                <div className="relative h-10 w-8">
+                  {/* mini tunic icon */}
+                  <div
+                    className="absolute inset-x-1 top-1 h-2 rounded-sm"
+                    style={{ background: owned ? t.trim : "var(--stone-dark)" }}
+                  />
+                  <div
+                    className="absolute inset-x-0 top-3 bottom-0 rounded-sm"
+                    style={{ background: owned ? t.body : "var(--stone-dark)" }}
+                  />
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 top-6 h-1.5 w-4 rounded-sm"
+                    style={{ background: owned ? t.accent : "transparent" }}
+                  />
+                </div>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-foreground/80 truncate w-full">
+                  {owned ? t.name.split(" ")[0] : "???"}
+                </span>
+                <span className="absolute top-1 right-1 font-mono text-[8px] text-muted-foreground">
+                  {i + 1}
+                </span>
+                {equipped && (
+                  <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-foreground" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
+          {TUNICS[hud.tunic].name} · {TUNICS[hud.tunic].perk}
+        </p>
+      </div>
+
       {/* Controls help */}
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        Arrows / WASD to move · Space / J / Z to swing
+        Arrows / WASD move · Space swing · 1–5 swap tunic
       </div>
 
       {/* Mobile pad */}
