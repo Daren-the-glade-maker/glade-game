@@ -440,7 +440,8 @@ export default function ZeldaGame() {
       const st = stateRef.current;
       const room = st.rooms[st.currentRoom];
       const h = st.hero;
-      const speed = 2;
+      const tunic = TUNICS[st.tunic];
+      const speed = tunic.speed;
 
       let dx = 0, dy = 0;
       if (st.keys.has("up")) { dy -= speed; h.dir = "up"; }
@@ -514,7 +515,7 @@ export default function ZeldaGame() {
 
         // sword damages enemy
         if (aRect && rectsOverlap(aRect, eRect)) {
-          e.hp--;
+          e.hp -= tunic.damageMul;
           // knockback
           if (h.dir === "right") e.x = Math.min(e.x + 16, (COLS - 2) * TILE);
           if (h.dir === "left") e.x = Math.max(e.x - 16, TILE);
@@ -531,7 +532,9 @@ export default function ZeldaGame() {
 
         // enemy hits hero
         if (h.iframes <= 0 && rectsOverlap(heroRect, eRect)) {
-          h.hp = Math.max(0, h.hp - 1);
+          const dmg = Math.max(1, Math.round(2 * tunic.damageTaken)) / 2 * 2; // keep half-heart granularity
+          h.hp = Math.max(0, h.hp - Math.max(1, Math.round(2 * tunic.damageTaken)));
+          void dmg;
           h.iframes = 60;
           // knockback hero away
           const kx = h.x - e.x;
