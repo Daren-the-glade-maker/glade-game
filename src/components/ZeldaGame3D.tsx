@@ -95,6 +95,8 @@ export default function ZeldaGame3D() {
     bossDefeated: false,
     zone: "overworld" as "overworld" | "dungeon",
     portalCooldown: 0,
+    swordLevel: 1,
+    swordShards: 0,
   });
 
   const [hud, setHud] = useState({
@@ -105,6 +107,8 @@ export default function ZeldaGame3D() {
     won: false,
     near: "",
     zone: "overworld" as "overworld" | "dungeon",
+    swordLevel: 1,
+    swordShards: 0,
   });
 
   const equipFnRef = useRef<(id: TunicId) => void>(() => {});
@@ -404,20 +408,20 @@ export default function ZeldaGame3D() {
     const armR = new THREE.Mesh(armGeo, bodyMat);
     armR.position.set(0.55, 1.1, 0); armR.castShadow = true; heroGroup.add(armR);
 
-    // sword — big golden blade (hidden when not attacking)
+    // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0.6, 1.1, 0);
     heroGroup.add(swordPivot);
-    const goldMat = new THREE.MeshStandardMaterial({
-      color: 0xffd24a,
-      emissive: 0xffaa00,
-      emissiveIntensity: 0.5,
-      metalness: 0.95,
-      roughness: 0.18,
+    const neonMat = new THREE.MeshStandardMaterial({
+      color: 0xff1a2b,
+      emissive: 0xff0022,
+      emissiveIntensity: 1.6,
+      metalness: 0.6,
+      roughness: 0.15,
     });
     const swordBlade = new THREE.Mesh(
       new THREE.BoxGeometry(0.22, 0.22, 2.0),
-      goldMat
+      neonMat
     );
     swordBlade.position.set(0, 0, 1.1);
     swordBlade.castShadow = true;
@@ -425,7 +429,7 @@ export default function ZeldaGame3D() {
     // tip
     const swordTip = new THREE.Mesh(
       new THREE.ConeGeometry(0.18, 0.45, 4),
-      goldMat
+      neonMat
     );
     swordTip.rotation.x = Math.PI / 2;
     swordTip.position.set(0, 0, 2.25);
@@ -433,29 +437,46 @@ export default function ZeldaGame3D() {
     // crossguard
     const swordGuard = new THREE.Mesh(
       new THREE.BoxGeometry(0.7, 0.12, 0.18),
-      goldMat
+      neonMat
     );
     swordGuard.position.set(0, 0, 0.15);
     swordPivot.add(swordGuard);
     // hilt grip
     const swordHilt = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.16, 0.32),
-      new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.8 })
+      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.8 })
     );
     swordHilt.position.set(0, 0, -0.05);
     swordPivot.add(swordHilt);
     // pommel jewel
     const swordPommel = new THREE.Mesh(
       new THREE.SphereGeometry(0.13, 12, 10),
-      new THREE.MeshStandardMaterial({ color: 0xff3344, emissive: 0xaa0011, emissiveIntensity: 0.8, metalness: 0.4 })
+      new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffaa00, emissiveIntensity: 0.9, metalness: 0.4 })
     );
     swordPommel.position.set(0, 0, -0.24);
     swordPivot.add(swordPommel);
     // glow halo
-    const swordGlow = new THREE.PointLight(0xffcc55, 1.6, 4);
+    const swordGlow = new THREE.PointLight(0xff2244, 2.2, 5);
     swordGlow.position.set(0, 0, 1.0);
     swordPivot.add(swordGlow);
     swordPivot.visible = false;
+
+    // ---- Sword upgrade tuning ----
+    // Damage / reach / glow scale with swordLevel (1..5)
+    const SWORD_UPGRADE_COST = 3; // shards per level
+    const SWORD_MAX_LEVEL = 5;
+    const applySwordVisuals = () => {
+      const lvl = stateRef.current.swordLevel;
+      const s = 1 + (lvl - 1) * 0.18;        // size grows
+      swordBlade.scale.set(s, s, 1 + (lvl - 1) * 0.15);
+      swordTip.scale.set(s, s, 1 + (lvl - 1) * 0.15);
+      swordTip.position.z = 2.25 + (lvl - 1) * 0.16;
+      swordGuard.scale.set(s, 1, 1);
+      neonMat.emissiveIntensity = 1.4 + lvl * 0.35;
+      swordGlow.intensity = 1.8 + lvl * 0.6;
+      swordGlow.distance = 4 + lvl * 0.8;
+    };
+    applySwordVisuals();
 
     // hero shadow disc fallback (in case shadows perform poorly)
     // (skip — using real shadows)
@@ -1067,12 +1088,26 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
+        if (k === "u") {
+          const s = stateRef.current;
+          if (s.swordLevel >= SWORD_MAX_LEVEL) {
+            showToast("Sword already at max level");
+          } else if (s.swordShards < SWORD_UPGRADE_COST) {
+            showToast(`Need ${SWORD_UPGRADE_COST} shards (have ${s.swordShards})`);
+          } else {
+            s.swordShards -= SWORD_UPGRADE_COST;
+            s.swordLevel += 1;
+            applySwordVisuals();
+            setHud((h) => ({ ...h, swordLevel: s.swordLevel, swordShards: s.swordShards }));
+            showToast(`Sword upgraded → Lv ${s.swordLevel}`);
+          }
+        }
       } else {
         keys.delete(k);
       }
@@ -1308,11 +1343,13 @@ export default function ZeldaGame3D() {
       }
 
       // --- Monsters ---
-      // sword reach in front of hero (big golden blade — long reach)
+      // sword reach + hit radius scale with upgrade level
+      const swordReach = 2.2 + st.swordLevel * 0.25;
+      const swordHitRadius = 1.9 + st.swordLevel * 0.18;
       let swordHit: THREE.Vector3 | null = null;
       if (st.attackTimer > 0.05) {
         const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
-        swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(2.4));
+        swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(swordReach));
       }
 
       let nearestNear = "";
@@ -1403,14 +1440,14 @@ export default function ZeldaGame3D() {
           m.group.scale.setScalar(1);
         }
 
-        // Sword hit — big golden sword: wider arc, more damage, stronger knockback
+        // Sword hit — neon red sword: damage and knockback scale with upgrade level
         if (swordHit) {
           const sd = Math.hypot(swordHit.x - m.group.position.x, swordHit.z - m.group.position.z);
-          if (sd < 2.2 && m.hitFlash <= 0) {
-            m.hp -= 3 * tunic.damageMul;
+          if (sd < swordHitRadius && m.hitFlash <= 0) {
+            const swordDmg = (2 + st.swordLevel) * tunic.damageMul; // Lv1=3, Lv5=7
+            m.hp -= swordDmg;
             m.hitFlash = 0.18;
-            // knockback
-            const k = 2.6;
+            const k = 2.0 + st.swordLevel * 0.4;
             if (dist > 0.01) {
               m.group.position.x -= (dx / dist) * k;
               m.group.position.z -= (dz / dist) * k;
@@ -1419,6 +1456,14 @@ export default function ZeldaGame3D() {
               m.alive = false;
               scene.remove(m.group);
               st.rupees += m.def.rupees;
+              // shard drop: bigger enemies = more shards, boss guaranteed big drop
+              const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+              if (Math.random() < shardChance) {
+                const amt = m.def.type === "boss" ? 5 : 1;
+                st.swordShards += amt;
+                setHud((h) => ({ ...h, swordShards: st.swordShards }));
+                showToast(`+${amt} sword shard${amt > 1 ? "s" : ""}`);
+              }
               setHud((h) => ({ ...h, rupees: st.rupees }));
               if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
               if (m.def.type === "boss") {
@@ -1562,6 +1607,9 @@ export default function ZeldaGame3D() {
             })}
           </div>
           <span className="font-mono text-xs text-foreground">◆ {hud.rupees}</span>
+          <span className="font-mono text-xs" style={{ color: "#ff4a5c", textShadow: "0 0 8px #ff1a2b" }}>
+            ⚔ Lv {hud.swordLevel} · ✦ {hud.swordShards}
+          </span>
         </div>
       </div>
 
@@ -1637,7 +1685,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrow keys move · Space swing · Drag to orbit camera · 1–5 swap tunic
+        WASD / Arrow keys move · Space swing · U upgrade sword (3 shards) · Drag to orbit · 1–5 swap tunic
       </div>
 
       {/* Mobile controls */}
