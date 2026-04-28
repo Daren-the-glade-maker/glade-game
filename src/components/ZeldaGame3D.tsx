@@ -1223,9 +1223,6 @@ export default function ZeldaGame3D() {
             showToast(`Sword upgraded → Lv ${s.swordLevel}`);
           }
         }
-      } else {
-        keys.delete(k);
-      }
     };
     const onDown = (e: KeyboardEvent) => onKey(e, true);
     const onUp = (e: KeyboardEvent) => onKey(e, false);
