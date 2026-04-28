@@ -1440,14 +1440,14 @@ export default function ZeldaGame3D() {
           m.group.scale.setScalar(1);
         }
 
-        // Sword hit — big golden sword: wider arc, more damage, stronger knockback
+        // Sword hit — neon red sword: damage and knockback scale with upgrade level
         if (swordHit) {
           const sd = Math.hypot(swordHit.x - m.group.position.x, swordHit.z - m.group.position.z);
-          if (sd < 2.2 && m.hitFlash <= 0) {
-            m.hp -= 3 * tunic.damageMul;
+          if (sd < swordHitRadius && m.hitFlash <= 0) {
+            const swordDmg = (2 + st.swordLevel) * tunic.damageMul; // Lv1=3, Lv5=7
+            m.hp -= swordDmg;
             m.hitFlash = 0.18;
-            // knockback
-            const k = 2.6;
+            const k = 2.0 + st.swordLevel * 0.4;
             if (dist > 0.01) {
               m.group.position.x -= (dx / dist) * k;
               m.group.position.z -= (dz / dist) * k;
@@ -1456,6 +1456,14 @@ export default function ZeldaGame3D() {
               m.alive = false;
               scene.remove(m.group);
               st.rupees += m.def.rupees;
+              // shard drop: bigger enemies = more shards, boss guaranteed big drop
+              const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+              if (Math.random() < shardChance) {
+                const amt = m.def.type === "boss" ? 5 : 1;
+                st.swordShards += amt;
+                setHud((h) => ({ ...h, swordShards: st.swordShards }));
+                showToast(`+${amt} sword shard${amt > 1 ? "s" : ""}`);
+              }
               setHud((h) => ({ ...h, rupees: st.rupees }));
               if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
               if (m.def.type === "boss") {
