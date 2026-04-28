@@ -93,6 +93,8 @@ export default function ZeldaGame3D() {
     attackTimer: 0,
     attackCd: 0,
     bossDefeated: false,
+    zone: "overworld" as "overworld" | "dungeon",
+    portalCooldown: 0,
   });
 
   const [hud, setHud] = useState({
@@ -102,6 +104,7 @@ export default function ZeldaGame3D() {
     toast: "",
     won: false,
     near: "",
+    zone: "overworld" as "overworld" | "dungeon",
   });
 
   const equipFnRef = useRef<(id: TunicId) => void>(() => {});
