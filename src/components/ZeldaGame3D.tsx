@@ -1090,22 +1090,35 @@ export default function ZeldaGame3D() {
       const st = stateRef.current;
       const tunic = TUNICS[st.tunic];
 
-      // --- Hero movement (camera-relative) ---
-      let inputX = 0, inputZ = 0;
-      if (keys.has("w") || keys.has("arrowup")) inputZ -= 1;
-      if (keys.has("s") || keys.has("arrowdown")) inputZ += 1;
-      if (keys.has("a") || keys.has("arrowleft")) inputX -= 1;
-      if (keys.has("d") || keys.has("arrowright")) inputX += 1;
-      const moveLen = Math.hypot(inputX, inputZ);
-      let moving = false;
-      if (moveLen > 0) {
-        moving = true;
-        inputX /= moveLen; inputZ /= moveLen;
-        // rotate input by camera yaw
+      // --- Hero movement ---
+      // WASD = camera-relative; Arrow keys = world-absolute (Up=north, etc.)
+      let camX = 0, camZ = 0;       // camera-relative input (WASD)
+      let worldX = 0, worldZ = 0;   // world-absolute input (arrows)
+      if (keys.has("w")) camZ -= 1;
+      if (keys.has("s")) camZ += 1;
+      if (keys.has("a")) camX -= 1;
+      if (keys.has("d")) camX += 1;
+      if (keys.has("arrowup"))    worldZ -= 1;
+      if (keys.has("arrowdown"))  worldZ += 1;
+      if (keys.has("arrowleft"))  worldX -= 1;
+      if (keys.has("arrowright")) worldX += 1;
+
+      let wx = 0, wz = 0;
+      const camLen = Math.hypot(camX, camZ);
+      if (camLen > 0) {
+        camX /= camLen; camZ /= camLen;
         const cosY = Math.cos(camYaw);
         const sinY = Math.sin(camYaw);
-        const wx = inputX * cosY - inputZ * sinY;
-        const wz = inputX * sinY + inputZ * cosY;
+        wx += camX * cosY - camZ * sinY;
+        wz += camX * sinY + camZ * cosY;
+      }
+      wx += worldX;
+      wz += worldZ;
+      const wLen = Math.hypot(wx, wz);
+      let moving = false;
+      if (wLen > 0) {
+        moving = true;
+        wx /= wLen; wz /= wLen;
         const speed = tunic.speed;
         const nx = heroGroup.position.x + wx * speed * dt;
         const nz = heroGroup.position.z + wz * speed * dt;
@@ -1113,7 +1126,6 @@ export default function ZeldaGame3D() {
         if (!collidesObstacle(heroGroup.position.x, nz, 0.4)) heroGroup.position.z = nz;
         // face movement
         const targetYaw = Math.atan2(wx, wz);
-        // shortest-angle interpolation
         let dY = targetYaw - heroGroup.rotation.y;
         while (dY > Math.PI) dY -= Math.PI * 2;
         while (dY < -Math.PI) dY += Math.PI * 2;
