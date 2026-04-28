@@ -1815,6 +1815,9 @@ export default function ZeldaGame3D() {
           <span className="font-mono text-xs" style={{ color: "#ff4a5c", textShadow: "0 0 8px #ff1a2b" }}>
             ⚔ Lv {hud.swordLevel} · ✦ {hud.swordShards}
           </span>
+          <span className="font-mono text-xs" style={{ color: hud.weapon === "bow" ? "#ffd24a" : "#aaaaaa" }}>
+            {hud.weapon === "bow" ? "🏹 Bow" : "⚔ Sword"} · ➳ {hud.arrows}
+          </span>
         </div>
       </div>
 
