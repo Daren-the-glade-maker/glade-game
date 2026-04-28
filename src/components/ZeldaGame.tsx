@@ -532,9 +532,9 @@ export default function ZeldaGame() {
 
         // enemy hits hero
         if (h.iframes <= 0 && rectsOverlap(heroRect, eRect)) {
-          const dmg = Math.max(1, Math.round(2 * tunic.damageTaken)) / 2 * 2; // keep half-heart granularity
-          h.hp = Math.max(0, h.hp - Math.max(1, Math.round(2 * tunic.damageTaken)));
-          void dmg;
+          // base damage 2 (one full heart). Scaled by tunic; min 1 (half-heart).
+          const dmg = Math.max(1, Math.round(2 * tunic.damageTaken));
+          h.hp = Math.max(0, h.hp - dmg);
           h.iframes = 60;
           // knockback hero away
           const kx = h.x - e.x;
