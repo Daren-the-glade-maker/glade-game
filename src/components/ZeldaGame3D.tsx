@@ -1607,6 +1607,9 @@ export default function ZeldaGame3D() {
             })}
           </div>
           <span className="font-mono text-xs text-foreground">◆ {hud.rupees}</span>
+          <span className="font-mono text-xs" style={{ color: "#ff4a5c", textShadow: "0 0 8px #ff1a2b" }}>
+            ⚔ Lv {hud.swordLevel} · ✦ {hud.swordShards}
+          </span>
         </div>
       </div>
 
