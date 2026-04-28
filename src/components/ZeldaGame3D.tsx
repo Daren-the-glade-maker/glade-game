@@ -1893,7 +1893,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrow keys move · Space swing · U upgrade sword (3 shards) · Drag to orbit · 1–5 swap tunic
+        WASD / Arrows move · Space swing/shoot · B toggle bow · U upgrade sword · 1–5 tunic · Drag to orbit
       </div>
 
       {/* Mobile controls */}
