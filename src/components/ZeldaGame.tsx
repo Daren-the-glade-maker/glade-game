@@ -125,6 +125,7 @@ function buildRooms(): Record<string, Room> {
         { x: 5 * TILE, y: 4 * TILE, hp: 1, dir: "down", cooldown: 0, alive: true },
       ],
       hearts: [],
+      pickups: [{ x: 16 * TILE, y: 4 * TILE, tunic: "red" }],
       exits: { right: { room: "B", x: TILE, y: 7 * TILE } },
     },
     B: {
@@ -136,6 +137,7 @@ function buildRooms(): Record<string, Room> {
         { x: 6 * TILE, y: 10 * TILE, hp: 1, dir: "right", cooldown: 0, alive: true },
       ],
       hearts: [{ x: 10 * TILE, y: 3 * TILE }],
+      pickups: [{ x: 2 * TILE, y: 11 * TILE, tunic: "white" }],
       exits: {
         left: { room: "A", x: (COLS - 2) * TILE, y: 7 * TILE },
         right: { room: "C", x: TILE, y: 7 * TILE },
@@ -151,6 +153,10 @@ function buildRooms(): Record<string, Room> {
         { x: 16 * TILE, y: 10 * TILE, hp: 3, dir: "up", cooldown: 0, alive: true },
       ],
       hearts: [{ x: 10 * TILE, y: 12 * TILE }],
+      pickups: [
+        { x: 10 * TILE, y: 2 * TILE, tunic: "blue" },
+        { x: 10 * TILE, y: 11 * TILE, tunic: "shadow" },
+      ],
       exits: { left: { room: "B", x: (COLS - 2) * TILE, y: 7 * TILE } },
     },
   };
