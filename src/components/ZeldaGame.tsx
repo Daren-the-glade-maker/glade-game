@@ -23,13 +23,42 @@ interface Heart {
   y: number;
 }
 
+type TunicId = "green" | "red" | "blue" | "white" | "shadow";
+
+interface TunicDef {
+  id: TunicId;
+  name: string;
+  body: string;
+  accent: string;
+  trim: string;
+  perk: string;
+  speed: number;
+  damageMul: number;
+  damageTaken: number;
+}
+
+interface Pickup {
+  x: number;
+  y: number;
+  tunic: TunicId;
+}
+
 interface Room {
   tiles: TileType[][];
   enemies: Enemy[];
   hearts: Heart[];
+  pickups: Pickup[];
   exits: Partial<Record<Dir, { room: string; x: number; y: number }>>;
   name: string;
 }
+
+const TUNICS: Record<TunicId, TunicDef> = {
+  green:  { id: "green",  name: "Forest Tunic", body: "oklch(0.72 0.18 145)",  accent: "oklch(0.55 0.20 30)",  trim: "oklch(0.42 0.12 145)", perk: "Balanced",            speed: 2,   damageMul: 1,   damageTaken: 1 },
+  red:    { id: "red",    name: "Ember Tunic",  body: "oklch(0.62 0.20 30)",   accent: "oklch(0.88 0.15 75)",  trim: "oklch(0.40 0.18 25)",  perk: "+50% sword damage",   speed: 2,   damageMul: 1.5, damageTaken: 1 },
+  blue:   { id: "blue",   name: "Tide Tunic",   body: "oklch(0.55 0.15 230)",  accent: "oklch(0.85 0.10 230)", trim: "oklch(0.30 0.12 240)", perk: "Halves damage taken", speed: 2,   damageMul: 1,   damageTaken: 0.5 },
+  white:  { id: "white",  name: "Wind Cloak",   body: "oklch(0.94 0.02 240)",  accent: "oklch(0.70 0.05 240)", trim: "oklch(0.55 0.05 240)", perk: "Faster on foot",      speed: 3,   damageMul: 1,   damageTaken: 1 },
+  shadow: { id: "shadow", name: "Shadow Veil",  body: "oklch(0.28 0.04 280)",  accent: "oklch(0.55 0.18 300)", trim: "oklch(0.12 0.02 280)", perk: "Power + speed",       speed: 2.5, damageMul: 1.5, damageTaken: 1 },
+};
 
 // ---- Room builders ----
 function blankRoom(fill: TileType = "grass"): TileType[][] {
@@ -96,6 +125,7 @@ function buildRooms(): Record<string, Room> {
         { x: 5 * TILE, y: 4 * TILE, hp: 1, dir: "down", cooldown: 0, alive: true },
       ],
       hearts: [],
+      pickups: [{ x: 16 * TILE, y: 4 * TILE, tunic: "red" }],
       exits: { right: { room: "B", x: TILE, y: 7 * TILE } },
     },
     B: {
@@ -107,6 +137,7 @@ function buildRooms(): Record<string, Room> {
         { x: 6 * TILE, y: 10 * TILE, hp: 1, dir: "right", cooldown: 0, alive: true },
       ],
       hearts: [{ x: 10 * TILE, y: 3 * TILE }],
+      pickups: [{ x: 2 * TILE, y: 11 * TILE, tunic: "white" }],
       exits: {
         left: { room: "A", x: (COLS - 2) * TILE, y: 7 * TILE },
         right: { room: "C", x: TILE, y: 7 * TILE },
@@ -122,6 +153,10 @@ function buildRooms(): Record<string, Room> {
         { x: 16 * TILE, y: 10 * TILE, hp: 3, dir: "up", cooldown: 0, alive: true },
       ],
       hearts: [{ x: 10 * TILE, y: 12 * TILE }],
+      pickups: [
+        { x: 10 * TILE, y: 2 * TILE, tunic: "blue" },
+        { x: 10 * TILE, y: 11 * TILE, tunic: "shadow" },
+      ],
       exits: { left: { room: "B", x: (COLS - 2) * TILE, y: 7 * TILE } },
     },
   };
@@ -144,20 +179,47 @@ export default function ZeldaGame() {
     keys: new Set<string>(),
     attack: { active: false, timer: 0 },
     rupees: 0,
+    tunic: "green" as TunicId,
+    inventory: new Set<TunicId>(["green"]),
   });
   const [, force] = useState(0);
-  const [hud, setHud] = useState({ hp: 6, maxHp: 6, room: "Whispering Glade", rupees: 0, won: false });
+  const [hud, setHud] = useState({
+    hp: 6, maxHp: 6, room: "Whispering Glade", rupees: 0, won: false,
+    tunic: "green" as TunicId,
+    inventory: ["green"] as TunicId[],
+    toast: "" as string,
+  });
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setHud((h) => ({ ...h, toast: msg }));
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setHud((h) => ({ ...h, toast: "" }));
+    }, 2200);
+  }, []);
 
   const refreshHud = useCallback(() => {
     const s = stateRef.current;
-    setHud({
+    setHud((h) => ({
+      ...h,
       hp: s.hero.hp,
       maxHp: s.hero.maxHp,
       room: s.rooms[s.currentRoom].name,
       rupees: s.rupees,
       won: s.rooms[s.currentRoom].enemies.every((e) => !e.alive) && s.currentRoom === "C",
-    });
+      tunic: s.tunic,
+      inventory: Array.from(s.inventory),
+    }));
   }, []);
+
+  const equipTunic = useCallback((id: TunicId) => {
+    const st = stateRef.current;
+    if (!st.inventory.has(id)) return;
+    st.tunic = id;
+    showToast(`Equipped ${TUNICS[id].name}`);
+    refreshHud();
+  }, [refreshHud, showToast]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, down: boolean) => {
@@ -167,6 +229,14 @@ export default function ZeldaGame() {
         W: "up", S: "down", A: "left", D: "right",
         " ": "attack", j: "attack", J: "attack", z: "attack", Z: "attack",
       };
+      const slotMap: Record<string, TunicId> = {
+        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
+      };
+      if (down && slotMap[e.key]) {
+        e.preventDefault();
+        equipTunic(slotMap[e.key]);
+        return;
+      }
       const k = map[e.key];
       if (!k) return;
       e.preventDefault();
@@ -189,7 +259,7 @@ export default function ZeldaGame() {
       window.removeEventListener("keydown", dn);
       window.removeEventListener("keyup", up);
     };
-  }, []);
+  }, [equipTunic]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -258,11 +328,15 @@ export default function ZeldaGame() {
     function drawHero(x: number, y: number, dir: Dir, iframes: number) {
       const blink = iframes > 0 && Math.floor(iframes / 3) % 2 === 0;
       if (blink) return;
+      const tunic = TUNICS[stateRef.current.tunic];
       // body
-      ctx.fillStyle = colors.hero;
+      ctx.fillStyle = tunic.body;
       ctx.fillRect(x + 4, y + 6, TILE - 8, TILE - 10);
-      // tunic accent
-      ctx.fillStyle = colors.heroAccent;
+      // shoulder/cap trim
+      ctx.fillStyle = tunic.trim;
+      ctx.fillRect(x + 6, y + 4, TILE - 12, 4);
+      // tunic accent stripe
+      ctx.fillStyle = tunic.accent;
       ctx.fillRect(x + 10, y + 14, TILE - 20, 6);
       // eyes/face dot indicating direction
       ctx.fillStyle = "#1b1b1b";
@@ -272,6 +346,30 @@ export default function ZeldaGame() {
       if (dir === "up") ctx.fillRect(cx - 4, cy - 6, 8, 3);
       if (dir === "left") ctx.fillRect(cx - 8, cy - 2, 4, 4);
       if (dir === "right") ctx.fillRect(cx + 4, cy - 2, 4, 4);
+    }
+
+    function drawPickup(p: Pickup, t: number) {
+      const tunic = TUNICS[p.tunic];
+      const bob = Math.sin(t / 240 + p.x) * 2;
+      const px = p.x;
+      const py = p.y + bob;
+      // glow
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.fillRect(px - 2, py - 2, TILE + 4, TILE + 4);
+      // folded tunic shape
+      ctx.fillStyle = tunic.body;
+      ctx.fillRect(px + 6, py + 8, TILE - 12, TILE - 14);
+      ctx.fillStyle = tunic.accent;
+      ctx.fillRect(px + 10, py + 14, TILE - 20, 4);
+      ctx.fillStyle = tunic.trim;
+      ctx.fillRect(px + 8, py + 6, TILE - 16, 4);
+      // sparkle
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      const sp = (Math.floor(t / 200) % 4);
+      if (sp === 0) ctx.fillRect(px + 4, py + 4, 2, 2);
+      if (sp === 1) ctx.fillRect(px + TILE - 6, py + 6, 2, 2);
+      if (sp === 2) ctx.fillRect(px + TILE - 4, py + TILE - 6, 2, 2);
+      if (sp === 3) ctx.fillRect(px + 6, py + TILE - 4, 2, 2);
     }
 
     function attackRect() {
@@ -342,7 +440,8 @@ export default function ZeldaGame() {
       const st = stateRef.current;
       const room = st.rooms[st.currentRoom];
       const h = st.hero;
-      const speed = 2;
+      const tunic = TUNICS[st.tunic];
+      const speed = tunic.speed;
 
       let dx = 0, dy = 0;
       if (st.keys.has("up")) { dy -= speed; h.dir = "up"; }
@@ -416,7 +515,7 @@ export default function ZeldaGame() {
 
         // sword damages enemy
         if (aRect && rectsOverlap(aRect, eRect)) {
-          e.hp--;
+          e.hp -= tunic.damageMul;
           // knockback
           if (h.dir === "right") e.x = Math.min(e.x + 16, (COLS - 2) * TILE);
           if (h.dir === "left") e.x = Math.max(e.x - 16, TILE);
@@ -433,7 +532,9 @@ export default function ZeldaGame() {
 
         // enemy hits hero
         if (h.iframes <= 0 && rectsOverlap(heroRect, eRect)) {
-          h.hp = Math.max(0, h.hp - 1);
+          // base damage 2 (one full heart). Scaled by tunic; min 1 (half-heart).
+          const dmg = Math.max(1, Math.round(2 * tunic.damageTaken));
+          h.hp = Math.max(0, h.hp - dmg);
           h.iframes = 60;
           // knockback hero away
           const kx = h.x - e.x;
@@ -460,6 +561,21 @@ export default function ZeldaGame() {
         return true;
       });
 
+      // pickup tunics
+      room.pickups = room.pickups.filter((p) => {
+        const r = { x: p.x + 4, y: p.y + 4, w: TILE - 8, h: TILE - 8 };
+        if (rectsOverlap(heroRect, r)) {
+          if (!st.inventory.has(p.tunic)) {
+            st.inventory.add(p.tunic);
+            st.tunic = p.tunic;
+            showToast(`Found ${TUNICS[p.tunic].name} — ${TUNICS[p.tunic].perk}`);
+            refreshHud();
+          }
+          return false;
+        }
+        return true;
+      });
+
       // respawn if dead
       if (h.hp <= 0) {
         h.hp = h.maxHp;
@@ -470,6 +586,7 @@ export default function ZeldaGame() {
       }
     }
 
+    let frame = 0;
     function render() {
       const st = stateRef.current;
       const room = st.rooms[st.currentRoom];
@@ -481,12 +598,14 @@ export default function ZeldaGame() {
         }
       }
       for (const heart of room.hearts) drawHeart(heart);
+      for (const p of room.pickups) drawPickup(p, frame);
       for (const e of room.enemies) if (e.alive) drawEnemy(e);
       drawHero(st.hero.x, st.hero.y, st.hero.dir, st.hero.iframes);
       if (st.attack.active) drawSword();
     }
 
     function loop() {
+      frame += 16;
       step();
       render();
       raf = requestAnimationFrame(loop);
@@ -573,9 +692,74 @@ export default function ZeldaGame() {
         )}
       </div>
 
+      {/* Toast */}
+      {hud.toast && (
+        <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-foreground bg-card/80 px-3 py-1.5 rounded border border-border">
+          {hud.toast}
+        </div>
+      )}
+
+      {/* Wardrobe */}
+      <div className="w-full max-w-[640px]">
+        <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground mb-2 text-center">
+          Wardrobe
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {(Object.keys(TUNICS) as TunicId[]).map((id, i) => {
+            const t = TUNICS[id];
+            const owned = hud.inventory.includes(id);
+            const equipped = hud.tunic === id;
+            return (
+              <button
+                key={id}
+                onClick={() => owned && equipTunic(id)}
+                disabled={!owned}
+                className={[
+                  "group relative flex flex-col items-center gap-1 rounded p-2 border transition-all",
+                  equipped
+                    ? "border-foreground bg-card"
+                    : owned
+                    ? "border-border bg-card/60 hover:border-foreground/60 hover:bg-card cursor-pointer"
+                    : "border-border/40 bg-card/30 opacity-50 cursor-not-allowed",
+                ].join(" ")}
+                title={owned ? `${t.name} — ${t.perk}` : "Not yet found"}
+              >
+                <div className="relative h-10 w-8">
+                  {/* mini tunic icon */}
+                  <div
+                    className="absolute inset-x-1 top-1 h-2 rounded-sm"
+                    style={{ background: owned ? t.trim : "var(--stone-dark)" }}
+                  />
+                  <div
+                    className="absolute inset-x-0 top-3 bottom-0 rounded-sm"
+                    style={{ background: owned ? t.body : "var(--stone-dark)" }}
+                  />
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2 top-6 h-1.5 w-4 rounded-sm"
+                    style={{ background: owned ? t.accent : "transparent" }}
+                  />
+                </div>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-foreground/80 truncate w-full">
+                  {owned ? t.name.split(" ")[0] : "???"}
+                </span>
+                <span className="absolute top-1 right-1 font-mono text-[8px] text-muted-foreground">
+                  {i + 1}
+                </span>
+                {equipped && (
+                  <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-foreground" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
+          {TUNICS[hud.tunic].name} · {TUNICS[hud.tunic].perk}
+        </p>
+      </div>
+
       {/* Controls help */}
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        Arrows / WASD to move · Space / J / Z to swing
+        Arrows / WASD move · Space swing · 1–5 swap tunic
       </div>
 
       {/* Mobile pad */}
