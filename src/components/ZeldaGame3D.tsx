@@ -1343,11 +1343,13 @@ export default function ZeldaGame3D() {
       }
 
       // --- Monsters ---
-      // sword reach in front of hero (big golden blade — long reach)
+      // sword reach + hit radius scale with upgrade level
+      const swordReach = 2.2 + st.swordLevel * 0.25;
+      const swordHitRadius = 1.9 + st.swordLevel * 0.18;
       let swordHit: THREE.Vector3 | null = null;
       if (st.attackTimer > 0.05) {
         const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
-        swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(2.4));
+        swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(swordReach));
       }
 
       let nearestNear = "";
