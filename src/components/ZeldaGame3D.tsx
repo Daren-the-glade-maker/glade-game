@@ -1195,12 +1195,20 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
+        if (k === "b") {
+          const s = stateRef.current;
+          s.weapon = s.weapon === "sword" ? "bow" : "sword";
+          // sync visuals: hide sheathed sword if bow is held in hand? keep sheath visible (sword stays in sheath)
+          setBowPose(s.weapon === "bow");
+          setHud((h) => ({ ...h, weapon: s.weapon }));
+          showToast(s.weapon === "bow" ? "Equipped Bow" : "Equipped Sword");
+        }
         if (k === "u") {
           const s = stateRef.current;
           if (s.swordLevel >= SWORD_MAX_LEVEL) {
