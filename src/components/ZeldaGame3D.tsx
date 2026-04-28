@@ -202,6 +202,9 @@ export default function ZeldaGame3D() {
       }
     }
 
+    // ---- Obstacles list (declared early so terrain features can push) ----
+    const obstacles: Obstacle[] = [];
+
     // ---- Lake (center pond) ----
     const lakeGeo = new THREE.CircleGeometry(7, 48);
     const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fb0, roughness: 0.4, metalness: 0.1 });
@@ -272,8 +275,7 @@ export default function ZeldaGame3D() {
     obstacles.push({ pos: new THREE.Vector3(14, 0, 7), radius: 3 });
     // (gap from -3 to 3 stays open for bridge)
 
-    // ---- Obstacles & decoration ----
-    const obstacles: Obstacle[] = [];
+    // ---- Decoration helpers ----
 
     function addTree(x: number, z: number) {
       const trunk = new THREE.Mesh(
