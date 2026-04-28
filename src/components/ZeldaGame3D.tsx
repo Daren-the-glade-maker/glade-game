@@ -408,6 +408,64 @@ export default function ZeldaGame3D() {
     const armR = new THREE.Mesh(armGeo, bodyMat);
     armR.position.set(0.55, 1.1, 0); armR.castShadow = true; heroGroup.add(armR);
 
+    // ---- Sheath on back (with sheathed sword visible when not attacking) ----
+    const sheathGroup = new THREE.Group();
+    // mounted on the back, tilted diagonally over the shoulder
+    sheathGroup.position.set(-0.18, 1.45, -0.28);
+    sheathGroup.rotation.set(-0.25, 0, 0.55); // lean across the back
+    heroGroup.add(sheathGroup);
+    // strap across chest/back
+    const strapMat = new THREE.MeshStandardMaterial({ color: 0x3a1f12, roughness: 0.9 });
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.06), strapMat);
+    strap.position.set(0, 0.1, 0);
+    strap.castShadow = true;
+    sheathGroup.add(strap);
+    // scabbard body (dark leather with red trim to match neon sword)
+    const scabMat = new THREE.MeshStandardMaterial({ color: 0x2a1418, roughness: 0.85 });
+    const scabbard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 2.1, 0.18), scabMat);
+    scabbard.position.set(0, -0.1, 0);
+    scabbard.castShadow = true;
+    sheathGroup.add(scabbard);
+    // metal trim bands
+    const trimBandMat = new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff0022, emissiveIntensity: 0.5, metalness: 0.7, roughness: 0.25 });
+    const bandTop = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.22), trimBandMat);
+    bandTop.position.set(0, 0.85, 0);
+    sheathGroup.add(bandTop);
+    const bandBottom = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.22), trimBandMat);
+    bandBottom.position.set(0, -1.05, 0);
+    sheathGroup.add(bandBottom);
+    // pointed scabbard tip
+    const scabTip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.3, 4), trimBandMat);
+    scabTip.position.set(0, -1.3, 0);
+    scabTip.rotation.y = Math.PI / 4;
+    sheathGroup.add(scabTip);
+
+    // sheathed sword (hilt sticking out the top, visible when not attacking)
+    const sheathedSword = new THREE.Group();
+    sheathedSword.position.set(0, 0.95, 0);
+    sheathGroup.add(sheathedSword);
+    // crossguard
+    const sgGuard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.1, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff0022, emissiveIntensity: 1.0, metalness: 0.6, roughness: 0.2 })
+    );
+    sgGuard.position.y = 0.0;
+    sheathedSword.add(sgGuard);
+    // grip
+    const sgGrip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.36, 0.14),
+      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.85 })
+    );
+    sgGrip.position.y = 0.22;
+    sheathedSword.add(sgGrip);
+    // pommel
+    const sgPommel = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 12, 10),
+      new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffaa00, emissiveIntensity: 0.9, metalness: 0.4 })
+    );
+    sgPommel.position.y = 0.46;
+    sheathedSword.add(sgPommel);
+
     // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0.6, 1.1, 0);
@@ -1218,6 +1276,7 @@ export default function ZeldaGame3D() {
         st.attackTimer = 0.3;
         st.attackCd = 0.4;
         swordPivot.visible = true;
+        sheathedSword.visible = false; // drawn from sheath
       }
       attackPressed = false;
       if (st.attackTimer > 0) {
@@ -1225,7 +1284,10 @@ export default function ZeldaGame3D() {
         // swing arc 0..1
         const t = 1 - st.attackTimer / 0.3;
         swordPivot.rotation.y = -1.2 + t * 2.4;
-        if (st.attackTimer <= 0) swordPivot.visible = false;
+        if (st.attackTimer <= 0) {
+          swordPivot.visible = false;
+          sheathedSword.visible = true; // sheathed again
+        }
       }
 
       // --- iframes ---
