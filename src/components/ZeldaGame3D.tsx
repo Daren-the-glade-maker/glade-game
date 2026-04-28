@@ -1217,6 +1217,7 @@ export default function ZeldaGame3D() {
     // ---- Input ----
     const keys = new Set<string>();
     let attackPressed = false;
+    let bowFirePressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
         "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
