@@ -698,6 +698,208 @@ export default function ZeldaGame3D() {
     spawnMonster("mage", -8, -28);
     spawnMonster("boss", 0, -32);
 
+    // ============================================================
+    // ---- COLLECTIBLES (rupees + heart container) ----
+    // ============================================================
+    interface Rupee { mesh: THREE.Mesh; phase: number; value: number; }
+    const rupees: Rupee[] = [];
+
+    function makeRupee(x: number, z: number, value = 1, color = 0x4ade80) {
+      const m = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.32, 0),
+        new THREE.MeshStandardMaterial({
+          color, emissive: color, emissiveIntensity: 0.5,
+          metalness: 0.3, roughness: 0.2,
+        })
+      );
+      m.position.set(x, 0.7, z);
+      m.castShadow = true;
+      scene.add(m);
+      rupees.push({ mesh: m, phase: Math.random() * Math.PI * 2, value });
+    }
+    // green rupees along the path
+    makeRupee(0, 22, 1);
+    makeRupee(-1.2, 14, 1);
+    makeRupee(1.2, 14, 1);
+    makeRupee(0, 4, 1);
+    makeRupee(4, -2, 1);
+    // blue rupees off the path (worth 5)
+    makeRupee(-22, 18, 5, 0x4a90ff);
+    makeRupee(24, 22, 5, 0x4a90ff);
+    makeRupee(-26, -10, 5, 0x4a90ff);
+    // hidden red rupee near boss area (worth 20)
+    makeRupee(-12, -30, 20, 0xff4a4a);
+
+    // Heart container (boosts max HP permanently)
+    interface HeartContainer { mesh: THREE.Group; phase: number; collected: boolean; }
+    const heartContainers: HeartContainer[] = [];
+    function makeHeartContainer(x: number, z: number) {
+      const g = new THREE.Group();
+      g.position.set(x, 1.2, z);
+      const sphere = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.55, 1),
+        new THREE.MeshStandardMaterial({
+          color: 0xff5577, emissive: 0xff2244, emissiveIntensity: 0.6,
+          metalness: 0.2, roughness: 0.3,
+        })
+      );
+      sphere.castShadow = true;
+      g.add(sphere);
+      // glow halo
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.7, 1.0, 24),
+        new THREE.MeshBasicMaterial({ color: 0xff7799, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      );
+      halo.rotation.x = -Math.PI / 2;
+      halo.position.y = -1.0;
+      g.add(halo);
+      scene.add(g);
+      heartContainers.push({ mesh: g, phase: 0, collected: false });
+    }
+    makeHeartContainer(-22, 0); // tucked in the western field
+
+    // ============================================================
+    // ---- PORTAL to dungeon ----
+    // ============================================================
+    const portalGroup = new THREE.Group();
+    portalGroup.position.set(4, 0, -10);
+    scene.add(portalGroup);
+    // base stone slabs
+    for (let i = 0; i < 4; i++) {
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(1.0, 0.4, 1.0),
+        new THREE.MeshStandardMaterial({ color: 0x4a4a55, roughness: 1 })
+      );
+      const a = (i / 4) * Math.PI * 2;
+      slab.position.set(Math.cos(a) * 1.6, 0.2, Math.sin(a) * 1.6);
+      slab.castShadow = true; slab.receiveShadow = true;
+      portalGroup.add(slab);
+    }
+    // ring frame
+    const ringFrame = new THREE.Mesh(
+      new THREE.TorusGeometry(1.4, 0.18, 12, 32),
+      new THREE.MeshStandardMaterial({ color: 0x9b6dff, emissive: 0x6a3fb8, emissiveIntensity: 0.7, metalness: 0.5, roughness: 0.3 })
+    );
+    ringFrame.rotation.x = Math.PI / 2;
+    ringFrame.position.y = 1.8;
+    ringFrame.castShadow = true;
+    portalGroup.add(ringFrame);
+    // swirling disc
+    const portalDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.25, 32),
+      new THREE.MeshBasicMaterial({ color: 0xb98aff, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    portalDisc.rotation.x = Math.PI / 2;
+    portalDisc.position.y = 1.8;
+    portalGroup.add(portalDisc);
+    // light
+    const portalLight = new THREE.PointLight(0xb98aff, 1.4, 8);
+    portalLight.position.y = 1.8;
+    portalGroup.add(portalLight);
+    obstacles.push({ pos: new THREE.Vector3(4, 0, -10), radius: 0.6 }); // base only blocks center
+
+    // ============================================================
+    // ---- DUNGEON ZONE (separate area, far north past z=-100) ----
+    // ============================================================
+    const dungeonOrigin = new THREE.Vector3(0, 0, -120);
+    const dungeonGroup = new THREE.Group();
+    scene.add(dungeonGroup);
+    // floor
+    const dFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.MeshStandardMaterial({ color: 0x3a3340, roughness: 1 })
+    );
+    dFloor.rotation.x = -Math.PI / 2;
+    dFloor.position.copy(dungeonOrigin);
+    dFloor.receiveShadow = true;
+    dungeonGroup.add(dFloor);
+    // tile pattern
+    const dTileMat = new THREE.MeshStandardMaterial({ color: 0x4a4250, roughness: 1 });
+    const dTileGeo = new THREE.PlaneGeometry(2, 2);
+    for (let i = 0; i < 20; i++) {
+      for (let j = 0; j < 20; j++) {
+        if ((i + j) % 2 === 0) continue;
+        const t = new THREE.Mesh(dTileGeo, dTileMat);
+        t.rotation.x = -Math.PI / 2;
+        t.position.set(dungeonOrigin.x - 20 + 1 + i * 2, dungeonOrigin.y + 0.011, dungeonOrigin.z - 20 + 1 + j * 2);
+        t.receiveShadow = true;
+        dungeonGroup.add(t);
+      }
+    }
+    // walls
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2330, roughness: 1 });
+    const wallH = 4;
+    const makeWall = (cx: number, cz: number, w: number, d: number) => {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
+      wall.position.set(dungeonOrigin.x + cx, wallH / 2, dungeonOrigin.z + cz);
+      wall.castShadow = true; wall.receiveShadow = true;
+      dungeonGroup.add(wall);
+      // collision approximated as several round obstacles along its length
+      const steps = Math.ceil(Math.max(w, d) / 1.5);
+      for (let k = 0; k <= steps; k++) {
+        const t = steps === 0 ? 0.5 : k / steps;
+        const ox = dungeonOrigin.x + cx + (w > d ? (t - 0.5) * w : 0);
+        const oz = dungeonOrigin.z + cz + (d > w ? (t - 0.5) * d : 0);
+        obstacles.push({ pos: new THREE.Vector3(ox, 0, oz), radius: Math.max(w, d) > 4 ? 1.0 : 0.8 });
+      }
+    };
+    makeWall(0, -20, 40, 1);  // north wall
+    makeWall(0, 20, 40, 1);   // south wall
+    makeWall(-20, 0, 1, 40);  // west wall
+    makeWall(20, 0, 1, 40);   // east wall
+    // pillars
+    for (const [px, pz] of [[-10, -10], [10, -10], [-10, 10], [10, 10]]) {
+      const pillar = new THREE.Mesh(
+        new THREE.BoxGeometry(1.2, 4, 1.2),
+        new THREE.MeshStandardMaterial({ color: 0x5a4a60, roughness: 1 })
+      );
+      pillar.position.set(dungeonOrigin.x + px, 2, dungeonOrigin.z + pz);
+      pillar.castShadow = true; pillar.receiveShadow = true;
+      dungeonGroup.add(pillar);
+      obstacles.push({ pos: new THREE.Vector3(dungeonOrigin.x + px, 0, dungeonOrigin.z + pz), radius: 0.8 });
+    }
+    // dungeon torches
+    for (const [px, pz] of [[-18, -18], [18, -18], [-18, 18], [18, 18]]) {
+      const torch = new THREE.PointLight(0xffaa44, 1.2, 12);
+      torch.position.set(dungeonOrigin.x + px, 3, dungeonOrigin.z + pz);
+      dungeonGroup.add(torch);
+      const flame = new THREE.Mesh(
+        new THREE.SphereGeometry(0.25, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffaa44 })
+      );
+      flame.position.copy(torch.position);
+      dungeonGroup.add(flame);
+    }
+    // dungeon exit portal (back to overworld) at south of dungeon
+    const exitPortal = new THREE.Group();
+    exitPortal.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 17);
+    dungeonGroup.add(exitPortal);
+    const exitRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.4, 0.18, 12, 32),
+      new THREE.MeshStandardMaterial({ color: 0x6fbf73, emissive: 0x4a8c3a, emissiveIntensity: 0.7, metalness: 0.5 })
+    );
+    exitRing.rotation.x = Math.PI / 2;
+    exitRing.position.y = 1.8;
+    exitPortal.add(exitRing);
+    const exitDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.25, 32),
+      new THREE.MeshBasicMaterial({ color: 0x8af09a, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    exitDisc.rotation.x = Math.PI / 2;
+    exitDisc.position.y = 1.8;
+    exitPortal.add(exitDisc);
+    const exitLight = new THREE.PointLight(0x8af09a, 1.2, 8);
+    exitLight.position.y = 1.8;
+    exitPortal.add(exitLight);
+    // dungeon-only enemies
+    spawnMonster("skeleton", dungeonOrigin.x - 6, dungeonOrigin.z - 4);
+    spawnMonster("skeleton", dungeonOrigin.x + 6, dungeonOrigin.z - 4);
+    spawnMonster("knight", dungeonOrigin.x, dungeonOrigin.z - 12);
+    spawnMonster("mage", dungeonOrigin.x - 8, dungeonOrigin.z + 8);
+    spawnMonster("bat", dungeonOrigin.x + 8, dungeonOrigin.z + 8);
+    // dungeon reward chest (red rupee + heart container would be repeat — give a big rupee pile)
+    makeRupee(dungeonOrigin.x, dungeonOrigin.z - 16, 20, 0xff4a4a);
+
     // ---- Projectiles ----
     const projectiles: Projectile[] = [];
 
