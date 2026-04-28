@@ -1235,12 +1235,7 @@ export default function ZeldaGame3D() {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
         if (k === "b") {
-          const s = stateRef.current;
-          s.weapon = s.weapon === "sword" ? "bow" : "sword";
-          // sync visuals: hide sheathed sword if bow is held in hand? keep sheath visible (sword stays in sheath)
-          setBowPose(s.weapon === "bow");
-          setHud((h) => ({ ...h, weapon: s.weapon }));
-          showToast(s.weapon === "bow" ? "Equipped Bow" : "Equipped Sword");
+          bowFirePressed = true;
         }
         if (k === "u") {
           const s = stateRef.current;
