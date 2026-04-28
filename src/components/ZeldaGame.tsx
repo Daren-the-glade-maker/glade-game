@@ -179,20 +179,47 @@ export default function ZeldaGame() {
     keys: new Set<string>(),
     attack: { active: false, timer: 0 },
     rupees: 0,
+    tunic: "green" as TunicId,
+    inventory: new Set<TunicId>(["green"]),
   });
   const [, force] = useState(0);
-  const [hud, setHud] = useState({ hp: 6, maxHp: 6, room: "Whispering Glade", rupees: 0, won: false });
+  const [hud, setHud] = useState({
+    hp: 6, maxHp: 6, room: "Whispering Glade", rupees: 0, won: false,
+    tunic: "green" as TunicId,
+    inventory: ["green"] as TunicId[],
+    toast: "" as string,
+  });
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setHud((h) => ({ ...h, toast: msg }));
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setHud((h) => ({ ...h, toast: "" }));
+    }, 2200);
+  }, []);
 
   const refreshHud = useCallback(() => {
     const s = stateRef.current;
-    setHud({
+    setHud((h) => ({
+      ...h,
       hp: s.hero.hp,
       maxHp: s.hero.maxHp,
       room: s.rooms[s.currentRoom].name,
       rupees: s.rupees,
       won: s.rooms[s.currentRoom].enemies.every((e) => !e.alive) && s.currentRoom === "C",
-    });
+      tunic: s.tunic,
+      inventory: Array.from(s.inventory),
+    }));
   }, []);
+
+  const equipTunic = useCallback((id: TunicId) => {
+    const st = stateRef.current;
+    if (!st.inventory.has(id)) return;
+    st.tunic = id;
+    showToast(`Equipped ${TUNICS[id].name}`);
+    refreshHud();
+  }, [refreshHud, showToast]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, down: boolean) => {
