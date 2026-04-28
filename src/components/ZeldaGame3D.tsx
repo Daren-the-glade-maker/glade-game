@@ -1591,7 +1591,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD move · Space swing · Drag to orbit camera · 1–5 swap tunic
+        WASD / Arrow keys move · Space swing · Drag to orbit camera · 1–5 swap tunic
       </div>
 
       {/* Mobile controls */}
