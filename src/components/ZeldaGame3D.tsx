@@ -1092,12 +1092,73 @@ export default function ZeldaGame3D() {
         }
       }
 
-      // --- Monsters ---
-      // sword reach in front of hero
-      let swordHit: THREE.Vector3 | null = null;
-      if (st.attackTimer > 0.1) {
-        // sword tip is roughly heroPos + forward * 1.4
-        const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+      // --- Rupees ---
+      for (let i = rupees.length - 1; i >= 0; i--) {
+        const r = rupees[i];
+        r.phase += dt * 2;
+        r.mesh.position.y = 0.7 + Math.sin(r.phase) * 0.15;
+        r.mesh.rotation.y += dt * 2;
+        const d = Math.hypot(heroGroup.position.x - r.mesh.position.x, heroGroup.position.z - r.mesh.position.z);
+        if (d < 0.9) {
+          st.rupees += r.value;
+          setHud((h) => ({ ...h, rupees: st.rupees }));
+          showToast(r.value >= 20 ? `+${r.value} rupees!` : r.value >= 5 ? `+${r.value} rupees` : `+${r.value} rupee`);
+          scene.remove(r.mesh);
+          rupees.splice(i, 1);
+        }
+      }
+
+      // --- Heart containers ---
+      for (let i = heartContainers.length - 1; i >= 0; i--) {
+        const hc = heartContainers[i];
+        if (hc.collected) continue;
+        hc.phase += dt * 1.5;
+        hc.mesh.position.y = 1.2 + Math.sin(hc.phase) * 0.2;
+        hc.mesh.rotation.y += dt * 1.0;
+        const d = Math.hypot(heroGroup.position.x - hc.mesh.position.x, heroGroup.position.z - hc.mesh.position.z);
+        if (d < 1.0) {
+          hc.collected = true;
+          st.maxHp += 2;
+          st.hp = st.maxHp;
+          setHud((h) => ({ ...h, hp: st.hp, maxHp: st.maxHp }));
+          showToast("Heart Container — max HP +1");
+          scene.remove(hc.mesh);
+          heartContainers.splice(i, 1);
+        }
+      }
+
+      // --- Portal animations + transitions ---
+      portalDisc.rotation.z += dt * 1.5;
+      ringFrame.rotation.z += dt * 0.4;
+      exitDisc.rotation.z -= dt * 1.5;
+      exitRing.rotation.z -= dt * 0.4;
+      st.portalCooldown = Math.max(0, st.portalCooldown - dt);
+
+      if (st.portalCooldown <= 0) {
+        if (st.zone === "overworld") {
+          const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - (-10));
+          if (dToPortal < 1.5) {
+            // teleport into the dungeon
+            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 14);
+            st.zone = "dungeon";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            setHud((h) => ({ ...h, zone: "dungeon" }));
+            showToast("Entered the Hollow Keep");
+          }
+        } else {
+          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 17));
+          if (dExit < 1.5) {
+            heroGroup.position.set(4, 0, -7);
+            st.zone = "overworld";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            setHud((h) => ({ ...h, zone: "overworld" }));
+            showToast("Returned to the Glade");
+          }
+        }
+      }
+
         swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(1.6));
       }
 
