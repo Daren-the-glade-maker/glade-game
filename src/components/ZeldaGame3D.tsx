@@ -1241,7 +1241,7 @@ export default function ZeldaGame3D() {
           const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - (-10));
           if (dToPortal < 1.5) {
             // teleport into the dungeon
-            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 14);
+            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
             st.zone = "dungeon";
             st.portalCooldown = 1.2;
             st.iframes = 0.8;
@@ -1249,7 +1249,7 @@ export default function ZeldaGame3D() {
             showToast("Entered the Hollow Keep");
           }
         } else {
-          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 17));
+          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 14));
           if (dExit < 1.5) {
             heroGroup.position.set(4, 0, -7);
             st.zone = "overworld";
