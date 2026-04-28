@@ -809,80 +809,158 @@ export default function ZeldaGame3D() {
     obstacles.push({ pos: new THREE.Vector3(4, 0, -10), radius: 0.6 }); // base only blocks center
 
     // ============================================================
-    // ---- DUNGEON ZONE (separate area, far north past z=-100) ----
+    // ---- DUNGEON ZONE: multiple connected rooms ----
     // ============================================================
     const dungeonOrigin = new THREE.Vector3(0, 0, -120);
     const dungeonGroup = new THREE.Group();
     scene.add(dungeonGroup);
-    // floor
-    const dFloor = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 40),
-      new THREE.MeshStandardMaterial({ color: 0x3a3340, roughness: 1 })
-    );
-    dFloor.rotation.x = -Math.PI / 2;
-    dFloor.position.copy(dungeonOrigin);
-    dFloor.receiveShadow = true;
-    dungeonGroup.add(dFloor);
-    // tile pattern
-    const dTileMat = new THREE.MeshStandardMaterial({ color: 0x4a4250, roughness: 1 });
-    const dTileGeo = new THREE.PlaneGeometry(2, 2);
-    for (let i = 0; i < 20; i++) {
-      for (let j = 0; j < 20; j++) {
-        if ((i + j) % 2 === 0) continue;
-        const t = new THREE.Mesh(dTileGeo, dTileMat);
-        t.rotation.x = -Math.PI / 2;
-        t.position.set(dungeonOrigin.x - 20 + 1 + i * 2, dungeonOrigin.y + 0.011, dungeonOrigin.z - 20 + 1 + j * 2);
-        t.receiveShadow = true;
-        dungeonGroup.add(t);
-      }
-    }
-    // walls
+
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2330, roughness: 1 });
     const wallH = 4;
-    const makeWall = (cx: number, cz: number, w: number, d: number) => {
+    const dFloorMat = new THREE.MeshStandardMaterial({ color: 0x3a3340, roughness: 1 });
+    const dTileMat = new THREE.MeshStandardMaterial({ color: 0x4a4250, roughness: 1 });
+    const dTileGeo = new THREE.PlaneGeometry(2, 2);
+
+    // raw wall segment (no door logic)
+    const addWallSeg = (cx: number, cz: number, w: number, d: number) => {
+      if (w <= 0.01 || d <= 0.01) return;
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
-      wall.position.set(dungeonOrigin.x + cx, wallH / 2, dungeonOrigin.z + cz);
+      wall.position.set(cx, wallH / 2, cz);
       wall.castShadow = true; wall.receiveShadow = true;
       dungeonGroup.add(wall);
-      // collision approximated as several round obstacles along its length
       const steps = Math.ceil(Math.max(w, d) / 1.5);
       for (let k = 0; k <= steps; k++) {
         const t = steps === 0 ? 0.5 : k / steps;
-        const ox = dungeonOrigin.x + cx + (w > d ? (t - 0.5) * w : 0);
-        const oz = dungeonOrigin.z + cz + (d > w ? (t - 0.5) * d : 0);
-        obstacles.push({ pos: new THREE.Vector3(ox, 0, oz), radius: Math.max(w, d) > 4 ? 1.0 : 0.8 });
+        const ox = cx + (w > d ? (t - 0.5) * w : 0);
+        const oz = cz + (d > w ? (t - 0.5) * d : 0);
+        obstacles.push({ pos: new THREE.Vector3(ox, 0, oz), radius: 0.8 });
       }
     };
-    makeWall(0, -20, 40, 1);  // north wall
-    makeWall(0, 20, 40, 1);   // south wall
-    makeWall(-20, 0, 1, 40);  // west wall
-    makeWall(20, 0, 1, 40);   // east wall
-    // pillars
-    for (const [px, pz] of [[-10, -10], [10, -10], [-10, 10], [10, 10]]) {
+
+    // Build a rectangular room with optional doors.
+    // doors: array of {side: 'N'|'S'|'E'|'W', offset: number, width: number}
+    type Door = { side: "N" | "S" | "E" | "W"; offset: number; width: number };
+    const buildRoom = (cx: number, cz: number, w: number, d: number, doors: Door[]) => {
+      // floor
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), dFloorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(cx, 0, cz);
+      floor.receiveShadow = true;
+      dungeonGroup.add(floor);
+      // checker tiles
+      const tilesX = Math.floor(w / 2);
+      const tilesZ = Math.floor(d / 2);
+      for (let i = 0; i < tilesX; i++) {
+        for (let j = 0; j < tilesZ; j++) {
+          if ((i + j) % 2 === 0) continue;
+          const t = new THREE.Mesh(dTileGeo, dTileMat);
+          t.rotation.x = -Math.PI / 2;
+          t.position.set(cx - w / 2 + 1 + i * 2, 0.011, cz - d / 2 + 1 + j * 2);
+          t.receiveShadow = true;
+          dungeonGroup.add(t);
+        }
+      }
+      // walls with door cutouts
+      const buildSide = (side: "N" | "S" | "E" | "W") => {
+        const horizontal = side === "N" || side === "S";
+        const length = horizontal ? w : d;
+        const fixedAxis = horizontal
+          ? cz + (side === "N" ? -d / 2 : d / 2)
+          : cx + (side === "W" ? -w / 2 : w / 2);
+        const sideDoors = doors
+          .filter((dr) => dr.side === side)
+          .sort((a, b) => a.offset - b.offset);
+        // segments along the wall length, splitting at each door
+        let cursor = -length / 2;
+        for (const dr of sideDoors) {
+          const dStart = dr.offset - dr.width / 2;
+          const dEnd = dr.offset + dr.width / 2;
+          if (dStart > cursor) {
+            const segLen = dStart - cursor;
+            const segCenter = cursor + segLen / 2;
+            if (horizontal) addWallSeg(cx + segCenter, fixedAxis, segLen, 1);
+            else addWallSeg(fixedAxis, cz + segCenter, 1, segLen);
+          }
+          cursor = dEnd;
+        }
+        if (cursor < length / 2) {
+          const segLen = length / 2 - cursor;
+          const segCenter = cursor + segLen / 2;
+          if (horizontal) addWallSeg(cx + segCenter, fixedAxis, segLen, 1);
+          else addWallSeg(fixedAxis, cz + segCenter, 1, segLen);
+        }
+      };
+      buildSide("N"); buildSide("S"); buildSide("E"); buildSide("W");
+      // corner torches
+      const torchSpots: [number, number][] = [
+        [cx - w / 2 + 2, cz - d / 2 + 2],
+        [cx + w / 2 - 2, cz - d / 2 + 2],
+        [cx - w / 2 + 2, cz + d / 2 - 2],
+        [cx + w / 2 - 2, cz + d / 2 - 2],
+      ];
+      for (const [px, pz] of torchSpots) {
+        const torch = new THREE.PointLight(0xffaa44, 1.0, 11);
+        torch.position.set(px, 3, pz);
+        dungeonGroup.add(torch);
+        const flame = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffaa44 })
+        );
+        flame.position.copy(torch.position);
+        dungeonGroup.add(flame);
+      }
+    };
+
+    const addPillar = (px: number, pz: number) => {
       const pillar = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 4, 1.2),
         new THREE.MeshStandardMaterial({ color: 0x5a4a60, roughness: 1 })
       );
-      pillar.position.set(dungeonOrigin.x + px, 2, dungeonOrigin.z + pz);
+      pillar.position.set(px, 2, pz);
       pillar.castShadow = true; pillar.receiveShadow = true;
       dungeonGroup.add(pillar);
-      obstacles.push({ pos: new THREE.Vector3(dungeonOrigin.x + px, 0, dungeonOrigin.z + pz), radius: 0.8 });
-    }
-    // dungeon torches
-    for (const [px, pz] of [[-18, -18], [18, -18], [-18, 18], [18, 18]]) {
-      const torch = new THREE.PointLight(0xffaa44, 1.2, 12);
-      torch.position.set(dungeonOrigin.x + px, 3, dungeonOrigin.z + pz);
-      dungeonGroup.add(torch);
-      const flame = new THREE.Mesh(
-        new THREE.SphereGeometry(0.25, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0xffaa44 })
-      );
-      flame.position.copy(torch.position);
-      dungeonGroup.add(flame);
-    }
-    // dungeon exit portal (back to overworld) at south of dungeon
+      obstacles.push({ pos: new THREE.Vector3(px, 0, pz), radius: 0.8 });
+    };
+
+    const dox = dungeonOrigin.x;
+    const doz = dungeonOrigin.z;
+
+    // Room A — Entry Hall (south). 30x24, doors: S (entry portal), N (to boss room), W (to treasure room)
+    buildRoom(dox, doz, 30, 24, [
+      { side: "S", offset: 0, width: 4 },     // entry from overworld
+      { side: "N", offset: 0, width: 4 },     // to boss room
+      { side: "W", offset: 0, width: 4 },     // to treasure room
+    ]);
+    addPillar(dox - 8, doz - 6);
+    addPillar(dox + 8, doz - 6);
+    addPillar(dox - 8, doz + 6);
+    addPillar(dox + 8, doz + 6);
+
+    // Room B — Boss Room (north of A). 28x24, doors: S (back to A), E (to mage room)
+    const bx = dox, bz = doz - 24;
+    buildRoom(bx, bz, 28, 24, [
+      { side: "S", offset: 0, width: 4 },
+      { side: "E", offset: 0, width: 4 },
+    ]);
+    addPillar(bx - 10, bz - 8);
+    addPillar(bx + 10, bz - 8);
+
+    // Room C — Treasure Vault (west of A). 20x18, door: E (back to A)
+    const cx = dox - 25, cz = doz;
+    buildRoom(cx, cz, 20, 18, [
+      { side: "E", offset: 0, width: 4 },
+    ]);
+
+    // Room D — Mage Sanctum (east of B). 22x20, door: W (back to B)
+    const dx = bx + 25, dz = bz;
+    buildRoom(dx, dz, 22, 20, [
+      { side: "W", offset: 0, width: 4 },
+    ]);
+    addPillar(dx, dz);
+
+    // dungeon exit portal (back to overworld) — just south of Room A
     const exitPortal = new THREE.Group();
-    exitPortal.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 17);
+    exitPortal.position.set(dox, 0, doz + 14);
     dungeonGroup.add(exitPortal);
     const exitRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.4, 0.18, 12, 32),
@@ -901,14 +979,28 @@ export default function ZeldaGame3D() {
     const exitLight = new THREE.PointLight(0x8af09a, 1.2, 8);
     exitLight.position.y = 1.8;
     exitPortal.add(exitLight);
-    // dungeon-only enemies
-    spawnMonster("skeleton", dungeonOrigin.x - 6, dungeonOrigin.z - 4);
-    spawnMonster("skeleton", dungeonOrigin.x + 6, dungeonOrigin.z - 4);
-    spawnMonster("knight", dungeonOrigin.x, dungeonOrigin.z - 12);
-    spawnMonster("mage", dungeonOrigin.x - 8, dungeonOrigin.z + 8);
-    spawnMonster("bat", dungeonOrigin.x + 8, dungeonOrigin.z + 8);
-    // dungeon reward chest (red rupee + heart container would be repeat — give a big rupee pile)
-    makeRupee(dungeonOrigin.x, dungeonOrigin.z - 16, 20, 0xff4a4a);
+
+    // Enemies & rewards per room
+    // Room A — entry skirmish
+    spawnMonster("skeleton", dox - 6, doz - 4);
+    spawnMonster("skeleton", dox + 6, doz - 4);
+    spawnMonster("bat",      dox,     doz + 4);
+    // Room B — boss room
+    spawnMonster("knight", bx,     bz - 6);
+    spawnMonster("skeleton", bx - 6, bz);
+    spawnMonster("skeleton", bx + 6, bz);
+    makeRupee(bx, bz - 10, 20, 0xff4a4a);
+    // Room C — treasure vault
+    spawnMonster("bat", cx, cz);
+    makeRupee(cx - 4, cz - 4, 5, 0x4a8fff);
+    makeRupee(cx + 4, cz - 4, 5, 0x4a8fff);
+    makeRupee(cx - 4, cz + 4, 5, 0x4a8fff);
+    makeRupee(cx + 4, cz + 4, 5, 0x4a8fff);
+    makeRupee(cx,     cz,     20, 0xff4a4a);
+    // Room D — mage sanctum
+    spawnMonster("mage", dx - 6, dz - 4);
+    spawnMonster("mage", dx + 6, dz + 4);
+    spawnMonster("slime", dx, dz + 6);
 
     // ---- Projectiles ----
     const projectiles: Projectile[] = [];
@@ -1149,7 +1241,7 @@ export default function ZeldaGame3D() {
           const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - (-10));
           if (dToPortal < 1.5) {
             // teleport into the dungeon
-            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 14);
+            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
             st.zone = "dungeon";
             st.portalCooldown = 1.2;
             st.iframes = 0.8;
@@ -1157,7 +1249,7 @@ export default function ZeldaGame3D() {
             showToast("Entered the Hollow Keep");
           }
         } else {
-          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 17));
+          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 14));
           if (dExit < 1.5) {
             heroGroup.position.set(4, 0, -7);
             st.zone = "overworld";
