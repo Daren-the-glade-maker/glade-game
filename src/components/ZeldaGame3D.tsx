@@ -1327,14 +1327,33 @@ export default function ZeldaGame3D() {
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
       armR.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
 
-      // --- Attack ---
+      // --- Attack / Fire ---
       st.attackCd = Math.max(0, st.attackCd - dt);
-      if (attackPressed && st.attackCd <= 0) {
+      st.bowCd = Math.max(0, st.bowCd - dt);
+      if (attackPressed && st.weapon === "sword" && st.attackCd <= 0) {
         st.attackTimer = 0.3;
         st.attackCd = 0.4;
         swordPivot.visible = true;
         sheathedSword.visible = false; // drawn from sheath
+      } else if (attackPressed && st.weapon === "bow" && st.bowCd <= 0) {
+        if (st.arrows > 0) {
+          st.arrows -= 1;
+          st.bowCd = 0.45;
+          // fire from bow position, in hero facing direction
+          const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+          const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.15, 0)).add(fwd.clone().multiplyScalar(0.6));
+          const target = origin.clone().add(fwd.clone().multiplyScalar(10));
+          fireProjectile(origin, target, false, 2);
+          // string twang animation
+          bowString.scale.x = 0.4;
+          setHud((h) => ({ ...h, arrows: st.arrows }));
+        } else {
+          showToast("Out of arrows");
+          st.bowCd = 0.3;
+        }
       }
+      // restore string
+      if (bowString.scale.x < 1) bowString.scale.x = Math.min(1, bowString.scale.x + dt * 6);
       attackPressed = false;
       if (st.attackTimer > 0) {
         st.attackTimer -= dt;
