@@ -324,13 +324,22 @@ export default function ZeldaGame3D() {
       };
     };
     const r = rng(7);
+    // helper: keep path corridor clear (path runs along x≈0 from z=25 down to z=-4, then x≈4 from z=-4 to z=-13, plus portal area)
+    const onPath = (x: number, z: number) => {
+      if (z >= -4 && z <= 25 && Math.abs(x) < 2.5) return true;
+      if (z >= -13 && z <= -4 && Math.abs(x - 4) < 2.5) return true;
+      // portal clearing
+      if (Math.hypot(x - 4, z - (-10)) < 3.5) return true;
+      // bridge corridor across creek
+      if (z >= 5 && z <= 9 && Math.abs(x) < 2.5) return true;
+      return false;
+    };
     for (let i = 0; i < 50; i++) {
       const x = (r() - 0.5) * (WORLD - 8);
       const z = (r() - 0.5) * (WORLD - 8);
-      // avoid lake
-      if (Math.hypot(x, z + 25) < 11) continue;
-      // avoid spawn
-      if (Math.hypot(x, z - 25) < 6) continue;
+      if (Math.hypot(x, z + 25) < 11) continue;       // avoid lake
+      if (Math.hypot(x, z - 25) < 6) continue;        // avoid spawn
+      if (onPath(x, z)) continue;
       addTree(x, z);
     }
     for (let i = 0; i < 25; i++) {
@@ -338,6 +347,7 @@ export default function ZeldaGame3D() {
       const z = (r() - 0.5) * (WORLD - 10);
       if (Math.hypot(x, z + 25) < 10) continue;
       if (Math.hypot(x, z - 25) < 5) continue;
+      if (onPath(x, z)) continue;
       addRock(x, z, 0.7 + r() * 0.8);
     }
 
