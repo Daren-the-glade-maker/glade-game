@@ -229,6 +229,14 @@ export default function ZeldaGame() {
         W: "up", S: "down", A: "left", D: "right",
         " ": "attack", j: "attack", J: "attack", z: "attack", Z: "attack",
       };
+      const slotMap: Record<string, TunicId> = {
+        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
+      };
+      if (down && slotMap[e.key]) {
+        e.preventDefault();
+        equipTunic(slotMap[e.key]);
+        return;
+      }
       const k = map[e.key];
       if (!k) return;
       e.preventDefault();
@@ -251,7 +259,7 @@ export default function ZeldaGame() {
       window.removeEventListener("keydown", dn);
       window.removeEventListener("keyup", up);
     };
-  }, []);
+  }, [equipTunic]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
