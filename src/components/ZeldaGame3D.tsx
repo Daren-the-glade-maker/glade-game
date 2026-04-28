@@ -1276,6 +1276,7 @@ export default function ZeldaGame3D() {
         st.attackTimer = 0.3;
         st.attackCd = 0.4;
         swordPivot.visible = true;
+        sheathedSword.visible = false; // drawn from sheath
       }
       attackPressed = false;
       if (st.attackTimer > 0) {
@@ -1283,7 +1284,10 @@ export default function ZeldaGame3D() {
         // swing arc 0..1
         const t = 1 - st.attackTimer / 0.3;
         swordPivot.rotation.y = -1.2 + t * 2.4;
-        if (st.attackTimer <= 0) swordPivot.visible = false;
+        if (st.attackTimer <= 0) {
+          swordPivot.visible = false;
+          sheathedSword.visible = true; // sheathed again
+        }
       }
 
       // --- iframes ---
