@@ -404,23 +404,57 @@ export default function ZeldaGame3D() {
     const armR = new THREE.Mesh(armGeo, bodyMat);
     armR.position.set(0.55, 1.1, 0); armR.castShadow = true; heroGroup.add(armR);
 
-    // sword (held in right hand, pointing forward by default - hidden when not attacking)
+    // sword — big golden blade (hidden when not attacking)
     const swordPivot = new THREE.Group();
-    swordPivot.position.set(0.55, 1.1, 0);
+    swordPivot.position.set(0.6, 1.1, 0);
     heroGroup.add(swordPivot);
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xffd24a,
+      emissive: 0xffaa00,
+      emissiveIntensity: 0.5,
+      metalness: 0.95,
+      roughness: 0.18,
+    });
     const swordBlade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.12, 1.1),
-      new THREE.MeshStandardMaterial({ color: 0xeaeaea, metalness: 0.6, roughness: 0.3 })
+      new THREE.BoxGeometry(0.22, 0.22, 2.0),
+      goldMat
     );
-    swordBlade.position.set(0, 0, 0.7);
+    swordBlade.position.set(0, 0, 1.1);
     swordBlade.castShadow = true;
     swordPivot.add(swordBlade);
-    const swordHilt = new THREE.Mesh(
-      new THREE.BoxGeometry(0.18, 0.18, 0.2),
-      accentMat
+    // tip
+    const swordTip = new THREE.Mesh(
+      new THREE.ConeGeometry(0.18, 0.45, 4),
+      goldMat
     );
-    swordHilt.position.set(0, 0, 0.05);
+    swordTip.rotation.x = Math.PI / 2;
+    swordTip.position.set(0, 0, 2.25);
+    swordPivot.add(swordTip);
+    // crossguard
+    const swordGuard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.12, 0.18),
+      goldMat
+    );
+    swordGuard.position.set(0, 0, 0.15);
+    swordPivot.add(swordGuard);
+    // hilt grip
+    const swordHilt = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.16, 0.32),
+      new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.8 })
+    );
+    swordHilt.position.set(0, 0, -0.05);
     swordPivot.add(swordHilt);
+    // pommel jewel
+    const swordPommel = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 12, 10),
+      new THREE.MeshStandardMaterial({ color: 0xff3344, emissive: 0xaa0011, emissiveIntensity: 0.8, metalness: 0.4 })
+    );
+    swordPommel.position.set(0, 0, -0.24);
+    swordPivot.add(swordPommel);
+    // glow halo
+    const swordGlow = new THREE.PointLight(0xffcc55, 1.6, 4);
+    swordGlow.position.set(0, 0, 1.0);
+    swordPivot.add(swordGlow);
     swordPivot.visible = false;
 
     // hero shadow disc fallback (in case shadows perform poorly)
