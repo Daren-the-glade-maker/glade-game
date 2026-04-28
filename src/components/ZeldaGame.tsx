@@ -561,6 +561,21 @@ export default function ZeldaGame() {
         return true;
       });
 
+      // pickup tunics
+      room.pickups = room.pickups.filter((p) => {
+        const r = { x: p.x + 4, y: p.y + 4, w: TILE - 8, h: TILE - 8 };
+        if (rectsOverlap(heroRect, r)) {
+          if (!st.inventory.has(p.tunic)) {
+            st.inventory.add(p.tunic);
+            st.tunic = p.tunic;
+            showToast(`Found ${TUNICS[p.tunic].name} — ${TUNICS[p.tunic].perk}`);
+            refreshHud();
+          }
+          return false;
+        }
+        return true;
+      });
+
       // respawn if dead
       if (h.hp <= 0) {
         h.hp = h.maxHp;
@@ -571,6 +586,7 @@ export default function ZeldaGame() {
       }
     }
 
+    let frame = 0;
     function render() {
       const st = stateRef.current;
       const room = st.rooms[st.currentRoom];
@@ -582,12 +598,14 @@ export default function ZeldaGame() {
         }
       }
       for (const heart of room.hearts) drawHeart(heart);
+      for (const p of room.pickups) drawPickup(p, frame);
       for (const e of room.enemies) if (e.alive) drawEnemy(e);
       drawHero(st.hero.x, st.hero.y, st.hero.dir, st.hero.iframes);
       if (st.attack.active) drawSword();
     }
 
     function loop() {
+      frame += 16;
       step();
       render();
       raf = requestAnimationFrame(loop);
