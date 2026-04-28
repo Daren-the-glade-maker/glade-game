@@ -62,9 +62,22 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
+  --radius: 0.25rem;
+  /* Minimalist geometric Zelda palette */
+  --background: oklch(0.22 0.04 150);
+  --foreground: oklch(0.96 0.02 90);
+  --grass: oklch(0.55 0.14 145);
+  --grass-dark: oklch(0.42 0.12 145);
+  --sand: oklch(0.86 0.08 85);
+  --stone: oklch(0.45 0.02 250);
+  --stone-dark: oklch(0.30 0.02 250);
+  --water: oklch(0.55 0.12 230);
+  --hero: oklch(0.72 0.18 145);
+  --hero-accent: oklch(0.55 0.20 30);
+  --enemy: oklch(0.55 0.22 25);
+  --heart: oklch(0.65 0.25 20);
+  --rupee: oklch(0.70 0.20 145);
+  --sword: oklch(0.92 0.02 240);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
