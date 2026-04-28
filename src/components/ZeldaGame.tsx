@@ -23,13 +23,42 @@ interface Heart {
   y: number;
 }
 
+type TunicId = "green" | "red" | "blue" | "white" | "shadow";
+
+interface TunicDef {
+  id: TunicId;
+  name: string;
+  body: string;
+  accent: string;
+  trim: string;
+  perk: string;
+  speed: number;
+  damageMul: number;
+  damageTaken: number;
+}
+
+interface Pickup {
+  x: number;
+  y: number;
+  tunic: TunicId;
+}
+
 interface Room {
   tiles: TileType[][];
   enemies: Enemy[];
   hearts: Heart[];
+  pickups: Pickup[];
   exits: Partial<Record<Dir, { room: string; x: number; y: number }>>;
   name: string;
 }
+
+const TUNICS: Record<TunicId, TunicDef> = {
+  green:  { id: "green",  name: "Forest Tunic", body: "oklch(0.72 0.18 145)",  accent: "oklch(0.55 0.20 30)",  trim: "oklch(0.42 0.12 145)", perk: "Balanced",            speed: 2,   damageMul: 1,   damageTaken: 1 },
+  red:    { id: "red",    name: "Ember Tunic",  body: "oklch(0.62 0.20 30)",   accent: "oklch(0.88 0.15 75)",  trim: "oklch(0.40 0.18 25)",  perk: "+50% sword damage",   speed: 2,   damageMul: 1.5, damageTaken: 1 },
+  blue:   { id: "blue",   name: "Tide Tunic",   body: "oklch(0.55 0.15 230)",  accent: "oklch(0.85 0.10 230)", trim: "oklch(0.30 0.12 240)", perk: "Halves damage taken", speed: 2,   damageMul: 1,   damageTaken: 0.5 },
+  white:  { id: "white",  name: "Wind Cloak",   body: "oklch(0.94 0.02 240)",  accent: "oklch(0.70 0.05 240)", trim: "oklch(0.55 0.05 240)", perk: "Faster on foot",      speed: 3,   damageMul: 1,   damageTaken: 1 },
+  shadow: { id: "shadow", name: "Shadow Veil",  body: "oklch(0.28 0.04 280)",  accent: "oklch(0.55 0.18 300)", trim: "oklch(0.12 0.02 280)", perk: "Power + speed",       speed: 2.5, damageMul: 1.5, damageTaken: 1 },
+};
 
 // ---- Room builders ----
 function blankRoom(fill: TileType = "grass"): TileType[][] {
