@@ -328,11 +328,15 @@ export default function ZeldaGame() {
     function drawHero(x: number, y: number, dir: Dir, iframes: number) {
       const blink = iframes > 0 && Math.floor(iframes / 3) % 2 === 0;
       if (blink) return;
+      const tunic = TUNICS[stateRef.current.tunic];
       // body
-      ctx.fillStyle = colors.hero;
+      ctx.fillStyle = tunic.body;
       ctx.fillRect(x + 4, y + 6, TILE - 8, TILE - 10);
-      // tunic accent
-      ctx.fillStyle = colors.heroAccent;
+      // shoulder/cap trim
+      ctx.fillStyle = tunic.trim;
+      ctx.fillRect(x + 6, y + 4, TILE - 12, 4);
+      // tunic accent stripe
+      ctx.fillStyle = tunic.accent;
       ctx.fillRect(x + 10, y + 14, TILE - 20, 6);
       // eyes/face dot indicating direction
       ctx.fillStyle = "#1b1b1b";
@@ -342,6 +346,30 @@ export default function ZeldaGame() {
       if (dir === "up") ctx.fillRect(cx - 4, cy - 6, 8, 3);
       if (dir === "left") ctx.fillRect(cx - 8, cy - 2, 4, 4);
       if (dir === "right") ctx.fillRect(cx + 4, cy - 2, 4, 4);
+    }
+
+    function drawPickup(p: Pickup, t: number) {
+      const tunic = TUNICS[p.tunic];
+      const bob = Math.sin(t / 240 + p.x) * 2;
+      const px = p.x;
+      const py = p.y + bob;
+      // glow
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.fillRect(px - 2, py - 2, TILE + 4, TILE + 4);
+      // folded tunic shape
+      ctx.fillStyle = tunic.body;
+      ctx.fillRect(px + 6, py + 8, TILE - 12, TILE - 14);
+      ctx.fillStyle = tunic.accent;
+      ctx.fillRect(px + 10, py + 14, TILE - 20, 4);
+      ctx.fillStyle = tunic.trim;
+      ctx.fillRect(px + 8, py + 6, TILE - 16, 4);
+      // sparkle
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      const sp = (Math.floor(t / 200) % 4);
+      if (sp === 0) ctx.fillRect(px + 4, py + 4, 2, 2);
+      if (sp === 1) ctx.fillRect(px + TILE - 6, py + 6, 2, 2);
+      if (sp === 2) ctx.fillRect(px + TILE - 4, py + TILE - 6, 2, 2);
+      if (sp === 3) ctx.fillRect(px + 6, py + TILE - 4, 2, 2);
     }
 
     function attackRect() {
