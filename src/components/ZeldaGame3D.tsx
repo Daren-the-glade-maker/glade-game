@@ -97,6 +97,9 @@ export default function ZeldaGame3D() {
     portalCooldown: 0,
     swordLevel: 1,
     swordShards: 0,
+    weapon: "sword" as "sword" | "bow",
+    arrows: 20,
+    bowCd: 0,
   });
 
   const [hud, setHud] = useState({
@@ -109,6 +112,8 @@ export default function ZeldaGame3D() {
     zone: "overworld" as "overworld" | "dungeon",
     swordLevel: 1,
     swordShards: 0,
+    weapon: "sword" as "sword" | "bow",
+    arrows: 20,
   });
 
   const equipFnRef = useRef<(id: TunicId) => void>(() => {});
