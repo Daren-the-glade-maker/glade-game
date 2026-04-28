@@ -1168,18 +1168,50 @@ export default function ZeldaGame3D() {
     const projectiles: Projectile[] = [];
 
     function fireProjectile(from: THREE.Vector3, target: THREE.Vector3, fromEnemy: boolean, dmg: number) {
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 10, 8),
-        new THREE.MeshStandardMaterial({
-          color: fromEnemy ? 0x66ddff : 0xffe17a,
-          emissive: fromEnemy ? 0x66ddff : 0xffe17a,
-          emissiveIntensity: 0.8,
-        })
-      );
+      let m: THREE.Mesh;
+      if (fromEnemy) {
+        m = new THREE.Mesh(
+          new THREE.SphereGeometry(0.2, 10, 8),
+          new THREE.MeshStandardMaterial({ color: 0x66ddff, emissive: 0x66ddff, emissiveIntensity: 0.8 })
+        );
+      } else {
+        // Arrow — thin cylinder with cone tip
+        const arrowGroup = new THREE.Group();
+        const shaft = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6),
+          new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 })
+        );
+        shaft.rotation.z = Math.PI / 2;
+        arrowGroup.add(shaft);
+        const tip = new THREE.Mesh(
+          new THREE.ConeGeometry(0.07, 0.18, 6),
+          new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.3 })
+        );
+        tip.rotation.z = -Math.PI / 2;
+        tip.position.x = 0.42;
+        arrowGroup.add(tip);
+        const fletch = new THREE.Mesh(
+          new THREE.ConeGeometry(0.1, 0.18, 4),
+          new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xaa0011, emissiveIntensity: 0.4 })
+        );
+        fletch.rotation.z = Math.PI / 2;
+        fletch.position.x = -0.38;
+        arrowGroup.add(fletch);
+        // wrap into a single mesh-like proxy: use a small invisible mesh as anchor and add arrowGroup as child
+        const anchor = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 4, 4),
+          new THREE.MeshBasicMaterial({ visible: false })
+        );
+        anchor.add(arrowGroup);
+        const dir = target.clone().sub(from).setY(0).normalize();
+        const yaw = Math.atan2(dir.x, dir.z);
+        anchor.rotation.y = yaw - Math.PI / 2; // align arrow's +X (its forward) with movement direction
+        m = anchor;
+      }
       m.position.copy(from);
       const dir = target.clone().sub(from).setY(0).normalize();
       scene.add(m);
-      projectiles.push({ mesh: m, vel: dir.multiplyScalar(12), life: 2.0, damage: dmg, fromEnemy });
+      projectiles.push({ mesh: m, vel: dir.multiplyScalar(fromEnemy ? 12 : 18), life: fromEnemy ? 2.0 : 1.6, damage: dmg, fromEnemy });
     }
 
     // ---- Input ----
