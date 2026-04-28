@@ -100,6 +100,7 @@ export default function ZeldaGame3D() {
     weapon: "sword" as "sword" | "bow",
     arrows: 20,
     bowCd: 0,
+    bowDrawTimer: 0,
   });
 
   const [hud, setHud] = useState({
