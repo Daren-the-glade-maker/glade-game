@@ -1094,6 +1094,20 @@ export default function ZeldaGame3D() {
       if (down) {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
+        if (k === "u") {
+          const s = stateRef.current;
+          if (s.swordLevel >= SWORD_MAX_LEVEL) {
+            showToast("Sword already at max level");
+          } else if (s.swordShards < SWORD_UPGRADE_COST) {
+            showToast(`Need ${SWORD_UPGRADE_COST} shards (have ${s.swordShards})`);
+          } else {
+            s.swordShards -= SWORD_UPGRADE_COST;
+            s.swordLevel += 1;
+            applySwordVisuals();
+            setHud((h) => ({ ...h, swordLevel: s.swordLevel, swordShards: s.swordShards }));
+            showToast(`Sword upgraded → Lv ${s.swordLevel}`);
+          }
+        }
       } else {
         keys.delete(k);
       }
