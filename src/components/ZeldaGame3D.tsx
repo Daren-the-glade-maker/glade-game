@@ -210,6 +210,68 @@ export default function ZeldaGame3D() {
     lake.position.set(0, 0.02, -25);
     scene.add(lake);
 
+    // ---- Sand path: spawn (z=25) up to portal (z=-10) ----
+    const pathMat = new THREE.MeshStandardMaterial({ color: 0xd9c48a, roughness: 1 });
+    const pathSegments: { x: number; z: number; w: number; l: number }[] = [
+      { x: 0, z: 18, w: 3, l: 14 },
+      { x: 0, z: 6, w: 3, l: 10 },
+      { x: 4, z: -2, w: 3, l: 12 }, // path bends east around lake area
+      { x: 4, z: -10, w: 3, l: 6 },
+    ];
+    for (const s of pathSegments) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.l), pathMat);
+      p.rotation.x = -Math.PI / 2;
+      p.position.set(s.x, 0.015, s.z);
+      p.receiveShadow = true;
+      scene.add(p);
+    }
+
+    // ---- Rolling hills (decorative bumps) ----
+    function addHill(x: number, z: number, r: number, h: number) {
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x5a8e44, roughness: 1 })
+      );
+      dome.scale.set(1, h / r, 1);
+      dome.position.set(x, 0, z);
+      dome.receiveShadow = true;
+      dome.castShadow = true;
+      scene.add(dome);
+    }
+    addHill(-22, 18, 6, 2.2);
+    addHill(24, 22, 5, 1.8);
+    addHill(-26, -10, 7, 2.6);
+
+    // ---- Creek + bridge (across path between z=10 and z=4) ----
+    const creek = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 4),
+      new THREE.MeshStandardMaterial({ color: 0x4a90c5, roughness: 0.4, metalness: 0.1 })
+    );
+    creek.rotation.x = -Math.PI / 2;
+    creek.position.set(-6, 0.03, 7);
+    scene.add(creek);
+    // bridge planks
+    const bridgeWoodMat = new THREE.MeshStandardMaterial({ color: 0x8a5a30, roughness: 0.9 });
+    for (let i = 0; i < 5; i++) {
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.18, 0.7), bridgeWoodMat);
+      plank.position.set(0, 0.18, 9 - i * 0.9);
+      plank.castShadow = true; plank.receiveShadow = true;
+      scene.add(plank);
+    }
+    // bridge rails
+    for (const sx of [-1.5, 1.5]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 4.5), bridgeWoodMat);
+      rail.position.set(sx, 0.5, 7);
+      rail.castShadow = true;
+      scene.add(rail);
+    }
+    // creek blocks crossing OUTSIDE the bridge area
+    obstacles.push({ pos: new THREE.Vector3(-12, 0, 7), radius: 3 });
+    obstacles.push({ pos: new THREE.Vector3(-18, 0, 7), radius: 3 });
+    obstacles.push({ pos: new THREE.Vector3(8, 0, 7), radius: 3 });
+    obstacles.push({ pos: new THREE.Vector3(14, 0, 7), radius: 3 });
+    // (gap from -3 to 3 stays open for bridge)
+
     // ---- Obstacles & decoration ----
     const obstacles: Obstacle[] = [];
 
