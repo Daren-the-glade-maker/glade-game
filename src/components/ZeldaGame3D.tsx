@@ -408,20 +408,20 @@ export default function ZeldaGame3D() {
     const armR = new THREE.Mesh(armGeo, bodyMat);
     armR.position.set(0.55, 1.1, 0); armR.castShadow = true; heroGroup.add(armR);
 
-    // sword — big golden blade (hidden when not attacking)
+    // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0.6, 1.1, 0);
     heroGroup.add(swordPivot);
-    const goldMat = new THREE.MeshStandardMaterial({
-      color: 0xffd24a,
-      emissive: 0xffaa00,
-      emissiveIntensity: 0.5,
-      metalness: 0.95,
-      roughness: 0.18,
+    const neonMat = new THREE.MeshStandardMaterial({
+      color: 0xff1a2b,
+      emissive: 0xff0022,
+      emissiveIntensity: 1.6,
+      metalness: 0.6,
+      roughness: 0.15,
     });
     const swordBlade = new THREE.Mesh(
       new THREE.BoxGeometry(0.22, 0.22, 2.0),
-      goldMat
+      neonMat
     );
     swordBlade.position.set(0, 0, 1.1);
     swordBlade.castShadow = true;
@@ -429,7 +429,7 @@ export default function ZeldaGame3D() {
     // tip
     const swordTip = new THREE.Mesh(
       new THREE.ConeGeometry(0.18, 0.45, 4),
-      goldMat
+      neonMat
     );
     swordTip.rotation.x = Math.PI / 2;
     swordTip.position.set(0, 0, 2.25);
@@ -437,29 +437,46 @@ export default function ZeldaGame3D() {
     // crossguard
     const swordGuard = new THREE.Mesh(
       new THREE.BoxGeometry(0.7, 0.12, 0.18),
-      goldMat
+      neonMat
     );
     swordGuard.position.set(0, 0, 0.15);
     swordPivot.add(swordGuard);
     // hilt grip
     const swordHilt = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.16, 0.32),
-      new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.8 })
+      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.8 })
     );
     swordHilt.position.set(0, 0, -0.05);
     swordPivot.add(swordHilt);
     // pommel jewel
     const swordPommel = new THREE.Mesh(
       new THREE.SphereGeometry(0.13, 12, 10),
-      new THREE.MeshStandardMaterial({ color: 0xff3344, emissive: 0xaa0011, emissiveIntensity: 0.8, metalness: 0.4 })
+      new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffaa00, emissiveIntensity: 0.9, metalness: 0.4 })
     );
     swordPommel.position.set(0, 0, -0.24);
     swordPivot.add(swordPommel);
     // glow halo
-    const swordGlow = new THREE.PointLight(0xffcc55, 1.6, 4);
+    const swordGlow = new THREE.PointLight(0xff2244, 2.2, 5);
     swordGlow.position.set(0, 0, 1.0);
     swordPivot.add(swordGlow);
     swordPivot.visible = false;
+
+    // ---- Sword upgrade tuning ----
+    // Damage / reach / glow scale with swordLevel (1..5)
+    const SWORD_UPGRADE_COST = 3; // shards per level
+    const SWORD_MAX_LEVEL = 5;
+    const applySwordVisuals = () => {
+      const lvl = stateRef.current.swordLevel;
+      const s = 1 + (lvl - 1) * 0.18;        // size grows
+      swordBlade.scale.set(s, s, 1 + (lvl - 1) * 0.15);
+      swordTip.scale.set(s, s, 1 + (lvl - 1) * 0.15);
+      swordTip.position.z = 2.25 + (lvl - 1) * 0.16;
+      swordGuard.scale.set(s, 1, 1);
+      neonMat.emissiveIntensity = 1.4 + lvl * 0.35;
+      swordGlow.intensity = 1.8 + lvl * 0.6;
+      swordGlow.distance = 4 + lvl * 0.8;
+    };
+    applySwordVisuals();
 
     // hero shadow disc fallback (in case shadows perform poorly)
     // (skip — using real shadows)
