@@ -471,6 +471,50 @@ export default function ZeldaGame3D() {
     sgPommel.position.y = 0.46;
     sheathedSword.add(sgPommel);
 
+    // ---- Bow (slung on back when sword equipped, held forward when bow equipped) ----
+    const bowGroup = new THREE.Group();
+    heroGroup.add(bowGroup);
+    const bowWoodMat = new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 });
+    const bowAccentMat = new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xaa7700, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.3 });
+    // arc — torus segment
+    const bowArc = new THREE.Mesh(
+      new THREE.TorusGeometry(0.55, 0.05, 8, 20, Math.PI * 1.1),
+      bowWoodMat
+    );
+    bowArc.rotation.z = Math.PI / 2 - Math.PI * 0.55;
+    bowGroup.add(bowArc);
+    // grip wrap
+    const bowGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1), bowAccentMat);
+    bowGroup.add(bowGrip);
+    // bowstring
+    const stringMat = new THREE.LineBasicMaterial({ color: 0xeeeeee });
+    const stringGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.55, 0),
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, -0.55, 0),
+    ]);
+    const bowString = new THREE.Line(stringGeo, stringMat);
+    bowGroup.add(bowString);
+
+    // Stowed-on-back position (opposite shoulder from sword sheath)
+    const bowStowedPos = new THREE.Vector3(0.22, 1.45, -0.32);
+    const bowStowedRot = new THREE.Euler(0.2, 0, -0.55);
+    // Held forward in left hand
+    const bowHeldPos = new THREE.Vector3(-0.55, 1.15, 0.55);
+    const bowHeldRot = new THREE.Euler(0, Math.PI / 2, 0);
+    const setBowPose = (held: boolean) => {
+      if (held) {
+        bowGroup.position.copy(bowHeldPos);
+        bowGroup.rotation.copy(bowHeldRot);
+        bowGroup.scale.setScalar(1.0);
+      } else {
+        bowGroup.position.copy(bowStowedPos);
+        bowGroup.rotation.copy(bowStowedRot);
+        bowGroup.scale.setScalar(0.85);
+      }
+    };
+    setBowPose(false);
+
     // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0.6, 1.1, 0);
