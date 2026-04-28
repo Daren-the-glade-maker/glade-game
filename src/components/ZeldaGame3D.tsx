@@ -1088,7 +1088,7 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
