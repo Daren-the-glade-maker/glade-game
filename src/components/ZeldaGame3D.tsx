@@ -1650,6 +1650,41 @@ export default function ZeldaGame3D() {
             projectiles.splice(i, 1);
             continue;
           }
+        } else if (!p.fromEnemy) {
+          // Player arrows damage monsters
+          let hitMonster = false;
+          for (const m of monsters) {
+            if (!m.alive) continue;
+            const d = Math.hypot(p.mesh.position.x - m.group.position.x, p.mesh.position.z - m.group.position.z);
+            if (d < 0.8 && m.hitFlash <= 0) {
+              m.hp -= p.damage;
+              m.hitFlash = 0.18;
+              hitMonster = true;
+              if (m.hp <= 0) {
+                m.alive = false;
+                scene.remove(m.group);
+                st.rupees += m.def.rupees;
+                const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+                if (Math.random() < shardChance) {
+                  const amt = m.def.type === "boss" ? 5 : 1;
+                  st.swordShards += amt;
+                  setHud((h) => ({ ...h, swordShards: st.swordShards }));
+                }
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+                if (m.def.type === "boss") {
+                  st.bossDefeated = true;
+                  setHud((h) => ({ ...h, won: true }));
+                }
+                setHud((h) => ({ ...h, rupees: st.rupees }));
+              }
+              break;
+            }
+          }
+          if (hitMonster) {
+            scene.remove(p.mesh);
+            projectiles.splice(i, 1);
+            continue;
+          }
         }
         if (p.life <= 0 || collidesObstacle(p.mesh.position.x, p.mesh.position.z, 0.1)) {
           scene.remove(p.mesh);
