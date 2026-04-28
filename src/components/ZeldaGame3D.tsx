@@ -1403,14 +1403,14 @@ export default function ZeldaGame3D() {
           m.group.scale.setScalar(1);
         }
 
-        // Sword hit
+        // Sword hit — big golden sword: wider arc, more damage, stronger knockback
         if (swordHit) {
           const sd = Math.hypot(swordHit.x - m.group.position.x, swordHit.z - m.group.position.z);
-          if (sd < 1.3 && m.hitFlash <= 0) {
-            m.hp -= tunic.damageMul;
+          if (sd < 2.2 && m.hitFlash <= 0) {
+            m.hp -= 3 * tunic.damageMul;
             m.hitFlash = 0.18;
             // knockback
-            const k = 1.2;
+            const k = 2.6;
             if (dist > 0.01) {
               m.group.position.x -= (dx / dist) * k;
               m.group.position.z -= (dz / dist) * k;
