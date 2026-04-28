@@ -97,6 +97,9 @@ export default function ZeldaGame3D() {
     portalCooldown: 0,
     swordLevel: 1,
     swordShards: 0,
+    weapon: "sword" as "sword" | "bow",
+    arrows: 20,
+    bowCd: 0,
   });
 
   const [hud, setHud] = useState({
@@ -109,6 +112,8 @@ export default function ZeldaGame3D() {
     zone: "overworld" as "overworld" | "dungeon",
     swordLevel: 1,
     swordShards: 0,
+    weapon: "sword" as "sword" | "bow",
+    arrows: 20,
   });
 
   const equipFnRef = useRef<(id: TunicId) => void>(() => {});
@@ -465,6 +470,50 @@ export default function ZeldaGame3D() {
     );
     sgPommel.position.y = 0.46;
     sheathedSword.add(sgPommel);
+
+    // ---- Bow (slung on back when sword equipped, held forward when bow equipped) ----
+    const bowGroup = new THREE.Group();
+    heroGroup.add(bowGroup);
+    const bowWoodMat = new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 });
+    const bowAccentMat = new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xaa7700, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.3 });
+    // arc — torus segment
+    const bowArc = new THREE.Mesh(
+      new THREE.TorusGeometry(0.55, 0.05, 8, 20, Math.PI * 1.1),
+      bowWoodMat
+    );
+    bowArc.rotation.z = Math.PI / 2 - Math.PI * 0.55;
+    bowGroup.add(bowArc);
+    // grip wrap
+    const bowGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1), bowAccentMat);
+    bowGroup.add(bowGrip);
+    // bowstring
+    const stringMat = new THREE.LineBasicMaterial({ color: 0xeeeeee });
+    const stringGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.55, 0),
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, -0.55, 0),
+    ]);
+    const bowString = new THREE.Line(stringGeo, stringMat);
+    bowGroup.add(bowString);
+
+    // Stowed-on-back position (opposite shoulder from sword sheath)
+    const bowStowedPos = new THREE.Vector3(0.22, 1.45, -0.32);
+    const bowStowedRot = new THREE.Euler(0.2, 0, -0.55);
+    // Held forward in left hand
+    const bowHeldPos = new THREE.Vector3(-0.55, 1.15, 0.55);
+    const bowHeldRot = new THREE.Euler(0, Math.PI / 2, 0);
+    const setBowPose = (held: boolean) => {
+      if (held) {
+        bowGroup.position.copy(bowHeldPos);
+        bowGroup.rotation.copy(bowHeldRot);
+        bowGroup.scale.setScalar(1.0);
+      } else {
+        bowGroup.position.copy(bowStowedPos);
+        bowGroup.rotation.copy(bowStowedRot);
+        bowGroup.scale.setScalar(0.85);
+      }
+    };
+    setBowPose(false);
 
     // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
@@ -1119,18 +1168,50 @@ export default function ZeldaGame3D() {
     const projectiles: Projectile[] = [];
 
     function fireProjectile(from: THREE.Vector3, target: THREE.Vector3, fromEnemy: boolean, dmg: number) {
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 10, 8),
-        new THREE.MeshStandardMaterial({
-          color: fromEnemy ? 0x66ddff : 0xffe17a,
-          emissive: fromEnemy ? 0x66ddff : 0xffe17a,
-          emissiveIntensity: 0.8,
-        })
-      );
+      let m: THREE.Mesh;
+      if (fromEnemy) {
+        m = new THREE.Mesh(
+          new THREE.SphereGeometry(0.2, 10, 8),
+          new THREE.MeshStandardMaterial({ color: 0x66ddff, emissive: 0x66ddff, emissiveIntensity: 0.8 })
+        );
+      } else {
+        // Arrow — thin cylinder with cone tip
+        const arrowGroup = new THREE.Group();
+        const shaft = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6),
+          new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 })
+        );
+        shaft.rotation.z = Math.PI / 2;
+        arrowGroup.add(shaft);
+        const tip = new THREE.Mesh(
+          new THREE.ConeGeometry(0.07, 0.18, 6),
+          new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.3 })
+        );
+        tip.rotation.z = -Math.PI / 2;
+        tip.position.x = 0.42;
+        arrowGroup.add(tip);
+        const fletch = new THREE.Mesh(
+          new THREE.ConeGeometry(0.1, 0.18, 4),
+          new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xaa0011, emissiveIntensity: 0.4 })
+        );
+        fletch.rotation.z = Math.PI / 2;
+        fletch.position.x = -0.38;
+        arrowGroup.add(fletch);
+        // wrap into a single mesh-like proxy: use a small invisible mesh as anchor and add arrowGroup as child
+        const anchor = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 4, 4),
+          new THREE.MeshBasicMaterial({ visible: false })
+        );
+        anchor.add(arrowGroup);
+        const dir = target.clone().sub(from).setY(0).normalize();
+        const yaw = Math.atan2(dir.x, dir.z);
+        anchor.rotation.y = yaw - Math.PI / 2; // align arrow's +X (its forward) with movement direction
+        m = anchor;
+      }
       m.position.copy(from);
       const dir = target.clone().sub(from).setY(0).normalize();
       scene.add(m);
-      projectiles.push({ mesh: m, vel: dir.multiplyScalar(12), life: 2.0, damage: dmg, fromEnemy });
+      projectiles.push({ mesh: m, vel: dir.multiplyScalar(fromEnemy ? 12 : 18), life: fromEnemy ? 2.0 : 1.6, damage: dmg, fromEnemy });
     }
 
     // ---- Input ----
@@ -1146,12 +1227,20 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
+        if (k === "b") {
+          const s = stateRef.current;
+          s.weapon = s.weapon === "sword" ? "bow" : "sword";
+          // sync visuals: hide sheathed sword if bow is held in hand? keep sheath visible (sword stays in sheath)
+          setBowPose(s.weapon === "bow");
+          setHud((h) => ({ ...h, weapon: s.weapon }));
+          showToast(s.weapon === "bow" ? "Equipped Bow" : "Equipped Sword");
+        }
         if (k === "u") {
           const s = stateRef.current;
           if (s.swordLevel >= SWORD_MAX_LEVEL) {
@@ -1270,14 +1359,33 @@ export default function ZeldaGame3D() {
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
       armR.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
 
-      // --- Attack ---
+      // --- Attack / Fire ---
       st.attackCd = Math.max(0, st.attackCd - dt);
-      if (attackPressed && st.attackCd <= 0) {
+      st.bowCd = Math.max(0, st.bowCd - dt);
+      if (attackPressed && st.weapon === "sword" && st.attackCd <= 0) {
         st.attackTimer = 0.3;
         st.attackCd = 0.4;
         swordPivot.visible = true;
         sheathedSword.visible = false; // drawn from sheath
+      } else if (attackPressed && st.weapon === "bow" && st.bowCd <= 0) {
+        if (st.arrows > 0) {
+          st.arrows -= 1;
+          st.bowCd = 0.45;
+          // fire from bow position, in hero facing direction
+          const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+          const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.15, 0)).add(fwd.clone().multiplyScalar(0.6));
+          const target = origin.clone().add(fwd.clone().multiplyScalar(10));
+          fireProjectile(origin, target, false, 2);
+          // string twang animation
+          bowString.scale.x = 0.4;
+          setHud((h) => ({ ...h, arrows: st.arrows }));
+        } else {
+          showToast("Out of arrows");
+          st.bowCd = 0.3;
+        }
       }
+      // restore string
+      if (bowString.scale.x < 1) bowString.scale.x = Math.min(1, bowString.scale.x + dt * 6);
       attackPressed = false;
       if (st.attackTimer > 0) {
         st.attackTimer -= dt;
@@ -1574,6 +1682,41 @@ export default function ZeldaGame3D() {
             projectiles.splice(i, 1);
             continue;
           }
+        } else if (!p.fromEnemy) {
+          // Player arrows damage monsters
+          let hitMonster = false;
+          for (const m of monsters) {
+            if (!m.alive) continue;
+            const d = Math.hypot(p.mesh.position.x - m.group.position.x, p.mesh.position.z - m.group.position.z);
+            if (d < 0.8 && m.hitFlash <= 0) {
+              m.hp -= p.damage;
+              m.hitFlash = 0.18;
+              hitMonster = true;
+              if (m.hp <= 0) {
+                m.alive = false;
+                scene.remove(m.group);
+                st.rupees += m.def.rupees;
+                const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+                if (Math.random() < shardChance) {
+                  const amt = m.def.type === "boss" ? 5 : 1;
+                  st.swordShards += amt;
+                  setHud((h) => ({ ...h, swordShards: st.swordShards }));
+                }
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+                if (m.def.type === "boss") {
+                  st.bossDefeated = true;
+                  setHud((h) => ({ ...h, won: true }));
+                }
+                setHud((h) => ({ ...h, rupees: st.rupees }));
+              }
+              break;
+            }
+          }
+          if (hitMonster) {
+            scene.remove(p.mesh);
+            projectiles.splice(i, 1);
+            continue;
+          }
         }
         if (p.life <= 0 || collidesObstacle(p.mesh.position.x, p.mesh.position.z, 0.1)) {
           scene.remove(p.mesh);
@@ -1672,6 +1815,9 @@ export default function ZeldaGame3D() {
           <span className="font-mono text-xs" style={{ color: "#ff4a5c", textShadow: "0 0 8px #ff1a2b" }}>
             ⚔ Lv {hud.swordLevel} · ✦ {hud.swordShards}
           </span>
+          <span className="font-mono text-xs" style={{ color: hud.weapon === "bow" ? "#ffd24a" : "#aaaaaa" }}>
+            {hud.weapon === "bow" ? "🏹 Bow" : "⚔ Sword"} · ➳ {hud.arrows}
+          </span>
         </div>
       </div>
 
@@ -1747,7 +1893,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrow keys move · Space swing · U upgrade sword (3 shards) · Drag to orbit · 1–5 swap tunic
+        WASD / Arrows move · Space swing/shoot · B toggle bow · U upgrade sword · 1–5 tunic · Drag to orbit
       </div>
 
       {/* Mobile controls */}
