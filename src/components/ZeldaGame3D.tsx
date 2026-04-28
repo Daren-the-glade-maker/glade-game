@@ -100,6 +100,7 @@ export default function ZeldaGame3D() {
     weapon: "sword" as "sword" | "bow",
     arrows: 20,
     bowCd: 0,
+    bowDrawTimer: 0,
   });
 
   const [hud, setHud] = useState({
@@ -1217,6 +1218,7 @@ export default function ZeldaGame3D() {
     // ---- Input ----
     const keys = new Set<string>();
     let attackPressed = false;
+    let bowFirePressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
         "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
@@ -1234,12 +1236,7 @@ export default function ZeldaGame3D() {
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
         if (k === "b") {
-          const s = stateRef.current;
-          s.weapon = s.weapon === "sword" ? "bow" : "sword";
-          // sync visuals: hide sheathed sword if bow is held in hand? keep sheath visible (sword stays in sheath)
-          setBowPose(s.weapon === "bow");
-          setHud((h) => ({ ...h, weapon: s.weapon }));
-          showToast(s.weapon === "bow" ? "Equipped Bow" : "Equipped Sword");
+          bowFirePressed = true;
         }
         if (k === "u") {
           const s = stateRef.current;
@@ -1362,21 +1359,25 @@ export default function ZeldaGame3D() {
       // --- Attack / Fire ---
       st.attackCd = Math.max(0, st.attackCd - dt);
       st.bowCd = Math.max(0, st.bowCd - dt);
-      if (attackPressed && st.weapon === "sword" && st.attackCd <= 0) {
+      // Sword swing — Space/J/Z
+      if (attackPressed && st.attackCd <= 0) {
         st.attackTimer = 0.3;
         st.attackCd = 0.4;
         swordPivot.visible = true;
-        sheathedSword.visible = false; // drawn from sheath
-      } else if (attackPressed && st.weapon === "bow" && st.bowCd <= 0) {
+        sheathedSword.visible = false;
+      }
+      // Bow fire — B
+      if (bowFirePressed && st.bowCd <= 0) {
         if (st.arrows > 0) {
           st.arrows -= 1;
-          st.bowCd = 0.45;
-          // fire from bow position, in hero facing direction
+          st.bowCd = 0.4;
+          // brief bow draw pose so the bow swings out
+          setBowPose(true);
+          st.bowDrawTimer = 0.35;
           const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
           const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.15, 0)).add(fwd.clone().multiplyScalar(0.6));
           const target = origin.clone().add(fwd.clone().multiplyScalar(10));
           fireProjectile(origin, target, false, 2);
-          // string twang animation
           bowString.scale.x = 0.4;
           setHud((h) => ({ ...h, arrows: st.arrows }));
         } else {
@@ -1384,9 +1385,15 @@ export default function ZeldaGame3D() {
           st.bowCd = 0.3;
         }
       }
+      // bow draw timer — return bow to back when done
+      if (st.bowDrawTimer > 0) {
+        st.bowDrawTimer = Math.max(0, st.bowDrawTimer - dt);
+        if (st.bowDrawTimer <= 0) setBowPose(false);
+      }
       // restore string
       if (bowString.scale.x < 1) bowString.scale.x = Math.min(1, bowString.scale.x + dt * 6);
       attackPressed = false;
+      bowFirePressed = false;
       if (st.attackTimer > 0) {
         st.attackTimer -= dt;
         // swing arc 0..1
@@ -1893,7 +1900,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrows move · Space swing/shoot · B toggle bow · U upgrade sword · 1–5 tunic · Drag to orbit
+        WASD / Arrows move · Space swing sword · B fire arrow · U upgrade sword · 1–5 tunic · Drag to orbit
       </div>
 
       {/* Mobile controls */}
