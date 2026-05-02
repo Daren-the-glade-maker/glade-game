@@ -1441,7 +1441,7 @@ export default function ZeldaGame3D() {
     let bowFirePressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
-        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
+        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow", "6": "dragon",
       };
       if (down && slotMap[e.key]) {
         e.preventDefault();
