@@ -1504,11 +1504,13 @@ export default function ZeldaGame3D() {
         const d = Math.hypot(x - o.pos.x, z - o.pos.z);
         if (d < o.radius + radius) return true;
       }
-      // lake
-      const dl = Math.hypot(x - 0, z - (-25));
-      if (dl < 7 + radius) return true;
-      // world bounds
-      if (Math.abs(x) > WORLD / 2 - 1 || Math.abs(z) > WORLD / 2 - 1) return true;
+      // overworld-only: lake + world bounds. Dungeon is far outside these bounds,
+      // so applying them there would freeze the player in place.
+      if (stateRef.current.zone === "overworld") {
+        const dl = Math.hypot(x - 0, z - (-25));
+        if (dl < 7 + radius) return true;
+        if (Math.abs(x) > WORLD / 2 - 1 || Math.abs(z) > WORLD / 2 - 1) return true;
+      }
       return false;
     }
 
