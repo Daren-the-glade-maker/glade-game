@@ -29,14 +29,18 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Glade" },
+      { name: "description", content: "An adventure game where players explore a 3D world, battle monsters, and collect items." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Glade" },
+      { property: "og:description", content: "An adventure game where players explore a 3D world, battle monsters, and collect items." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Glade" },
+      { name: "twitter:description", content: "An adventure game where players explore a 3D world, battle monsters, and collect items." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/03a9be37-0700-44e7-8233-3d65ce69b74d/id-preview-7b51caf5--b4baa04b-4963-45bc-bd67-60c1a35d9914.lovable.app-1777418635592.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/03a9be37-0700-44e7-8233-3d65ce69b74d/id-preview-7b51caf5--b4baa04b-4963-45bc-bd67-60c1a35d9914.lovable.app-1777418635592.png" },
     ],
     links: [
       {
