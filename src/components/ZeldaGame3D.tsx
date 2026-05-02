@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 
 // ---------- Types ----------
-type TunicId = "green" | "red" | "blue" | "white" | "shadow";
+type TunicId = "green" | "red" | "blue" | "white" | "shadow" | "dragon";
 interface TunicDef {
   id: TunicId;
   name: string;
