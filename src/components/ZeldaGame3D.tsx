@@ -848,6 +848,7 @@ export default function ZeldaGame3D() {
     makeTunicPickup("white", 20, 8);
     makeTunicPickup("blue", -12, -10);
     makeTunicPickup("shadow", 14, -18);
+    makeTunicPickup("dragon", -22, -22);
 
     // ---- Hearts ----
     const hearts: HeartDrop[] = [];
