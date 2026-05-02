@@ -142,6 +142,7 @@ export default function ZeldaGame3D() {
     heroBodyMatRef.current?.color.setHex(t.body);
     heroAccentMatRef.current?.color.setHex(t.accent);
     heroTrimMatRef.current?.color.setHex(t.trim);
+    dragonFormRef.current(id === "dragon");
     setHud((h) => ({ ...h, tunic: id }));
     showToast(`Equipped ${t.name}`);
   }, [showToast]);
