@@ -780,6 +780,31 @@ export default function ZeldaGame3D() {
     };
     applySwordVisuals();
 
+    // ---- Dragon form toggle (now that swordPivot exists) ----
+    const dragonSwordPivotPos = new THREE.Vector3(0.85, 1.85, 0.1);
+    const humanSwordPivotPos = swordPivot.position.clone();
+    const setDragonForm = (on: boolean) => {
+      dragonGroup.visible = on;
+      for (const p of humanParts) p.visible = !on;
+      if (on) {
+        sheathGroup.position.copy(dragonSheathPos);
+        sheathGroup.rotation.copy(dragonSheathRot);
+        bowStowedPos.copy(dragonBowStowedPos);
+        bowStowedRot.copy(dragonBowStowedRot);
+        bowHeldPos.set(-0.85, 1.95, 0.7);
+        swordPivot.position.copy(dragonSwordPivotPos);
+      } else {
+        sheathGroup.position.copy(humanSheathPos);
+        sheathGroup.rotation.copy(humanSheathRot);
+        bowStowedPos.set(0.22, 1.45, -0.32);
+        bowStowedRot.set(0.2, 0, -0.55);
+        bowHeldPos.set(-0.55, 1.15, 0.55);
+        swordPivot.position.copy(humanSwordPivotPos);
+      }
+      setBowPose(false);
+    };
+    dragonFormRef.current = setDragonForm;
+
     // hero shadow disc fallback (in case shadows perform poorly)
     // (skip — using real shadows)
 
