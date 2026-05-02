@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 
 // ---------- Types ----------
-type TunicId = "green" | "red" | "blue" | "white" | "shadow";
+type TunicId = "green" | "red" | "blue" | "white" | "shadow" | "dragon";
 interface TunicDef {
   id: TunicId;
   name: string;
@@ -21,6 +21,7 @@ const TUNICS: Record<TunicId, TunicDef> = {
   blue:   { id: "blue",   name: "Tide Tunic",   body: 0x4a8fb8, accent: 0xb8d8e8, trim: 0x1f3a52, perk: "Halves damage taken", speed: 6,  damageMul: 1,   damageTaken: 0.5 },
   white:  { id: "white",  name: "Wind Cloak",   body: 0xeae6dc, accent: 0xa9aab2, trim: 0x6c6e76, perk: "Faster on foot",      speed: 9,  damageMul: 1,   damageTaken: 1 },
   shadow: { id: "shadow", name: "Shadow Veil",  body: 0x2a2336, accent: 0x8a4ec2, trim: 0x14101c, perk: "Power + speed",       speed: 7.5,damageMul: 1.5, damageTaken: 1 },
+  dragon: { id: "dragon", name: "Dragon Scale",  body: 0x2a6f3a, accent: 0xffb01a, trim: 0x6b1a0a, perk: "DRAGON FORM — bipedal beast", speed: 8, damageMul: 2.0, damageTaken: 0.5 },
 };
 
 type MonsterType = "slime" | "bat" | "skeleton" | "knight" | "mage" | "boss";
@@ -121,6 +122,7 @@ export default function ZeldaGame3D() {
   const heroBodyMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const heroAccentMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const heroTrimMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const dragonFormRef = useRef<(on: boolean) => void>(() => {});
   const toastTimerRef = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -140,6 +142,7 @@ export default function ZeldaGame3D() {
     heroBodyMatRef.current?.color.setHex(t.body);
     heroAccentMatRef.current?.color.setHex(t.accent);
     heroTrimMatRef.current?.color.setHex(t.trim);
+    dragonFormRef.current(id === "dragon");
     setHud((h) => ({ ...h, tunic: id }));
     showToast(`Equipped ${t.name}`);
   }, [showToast]);
@@ -516,6 +519,197 @@ export default function ZeldaGame3D() {
     };
     setBowPose(false);
 
+    // ---- DRAGON FORM ----
+    // Bipedal dragon model attached to heroGroup. Hidden until "dragon" tunic equipped.
+    // Human parts are hidden, weapons reposition to fit the larger body.
+    const humanParts: THREE.Object3D[] = [body, belt, legL, legR, head, hat, armL, armR];
+    const dragonGroup = new THREE.Group();
+    dragonGroup.visible = false;
+    heroGroup.add(dragonGroup);
+
+    const scaleMat = new THREE.MeshStandardMaterial({ color: 0x2a6f3a, roughness: 0.55, metalness: 0.25 });
+    const bellyMat = new THREE.MeshStandardMaterial({ color: 0xffb01a, roughness: 0.6, metalness: 0.15, emissive: 0x331400, emissiveIntensity: 0.2 });
+    const clawMat  = new THREE.MeshStandardMaterial({ color: 0x1a0f08, roughness: 0.4, metalness: 0.6 });
+    const eyeMat   = new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xff8800, emissiveIntensity: 1.5 });
+    const wingMat  = new THREE.MeshStandardMaterial({ color: 0x6b1a0a, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x220500, emissiveIntensity: 0.25 });
+
+    // ---- Torso (broad, leaning slightly forward) ----
+    const dTorso = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.5, 0.85), scaleMat);
+    dTorso.position.y = 1.7;
+    dTorso.castShadow = true;
+    dragonGroup.add(dTorso);
+    // belly plate
+    const dBelly = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.3, 0.05), bellyMat);
+    dBelly.position.set(0, 1.65, 0.44);
+    dragonGroup.add(dBelly);
+    // shoulder hump
+    const dHump = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), scaleMat);
+    dHump.position.set(0, 2.25, -0.1);
+    dHump.scale.set(1.1, 0.55, 0.9);
+    dHump.castShadow = true;
+    dragonGroup.add(dHump);
+
+    // ---- Neck + Head ----
+    const dNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 0.7, 10), scaleMat);
+    dNeck.position.set(0, 2.55, 0.15);
+    dNeck.rotation.x = -0.4;
+    dNeck.castShadow = true;
+    dragonGroup.add(dNeck);
+    // head — elongated snout
+    const dHead = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.8), scaleMat);
+    dHead.position.set(0, 2.95, 0.45);
+    dHead.castShadow = true;
+    dragonGroup.add(dHead);
+    // snout tip
+    const dSnout = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.45), scaleMat);
+    dSnout.position.set(0, 2.88, 0.92);
+    dragonGroup.add(dSnout);
+    // jaw
+    const dJaw = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.5), bellyMat);
+    dJaw.position.set(0, 2.7, 0.95);
+    dragonGroup.add(dJaw);
+    // teeth (tiny cones row)
+    for (let i = -1; i <= 1; i++) {
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 4), new THREE.MeshStandardMaterial({ color: 0xfff5dc }));
+      tooth.position.set(i * 0.1, 2.78, 1.18);
+      tooth.rotation.x = Math.PI;
+      dragonGroup.add(tooth);
+    }
+    // eyes
+    const dEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), eyeMat);
+    dEyeL.position.set(-0.18, 3.05, 0.78);
+    dragonGroup.add(dEyeL);
+    const dEyeR = dEyeL.clone();
+    dEyeR.position.x = 0.18;
+    dragonGroup.add(dEyeR);
+    // horns — back-swept cones
+    const hornGeo = new THREE.ConeGeometry(0.09, 0.55, 6);
+    const hornL = new THREE.Mesh(hornGeo, clawMat);
+    hornL.position.set(-0.2, 3.25, 0.15);
+    hornL.rotation.set(0.6, 0, -0.2);
+    dragonGroup.add(hornL);
+    const hornR = new THREE.Mesh(hornGeo, clawMat);
+    hornR.position.set(0.2, 3.25, 0.15);
+    hornR.rotation.set(0.6, 0, 0.2);
+    dragonGroup.add(hornR);
+    // brow ridge spikes
+    for (let i = 0; i < 4; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), scaleMat);
+      spike.position.set(0, 2.4 + i * 0.18, -0.1 + i * 0.05);
+      spike.rotation.x = -0.3;
+      dragonGroup.add(spike);
+    }
+
+    // ---- Arms (small T-rex-like, but holding weapons) ----
+    const dArmGeo = new THREE.BoxGeometry(0.28, 0.85, 0.32);
+    const dArmL = new THREE.Mesh(dArmGeo, scaleMat);
+    dArmL.position.set(-0.7, 1.85, 0.1);
+    dArmL.rotation.z = 0.25;
+    dArmL.castShadow = true;
+    dragonGroup.add(dArmL);
+    const dArmR = new THREE.Mesh(dArmGeo, scaleMat);
+    dArmR.position.set(0.7, 1.85, 0.1);
+    dArmR.rotation.z = -0.25;
+    dArmR.castShadow = true;
+    dragonGroup.add(dArmR);
+    // claws on hands
+    for (const [side, x] of [["L", -0.78], ["R", 0.78]] as const) {
+      for (let i = 0; i < 3; i++) {
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 4), clawMat);
+        claw.position.set(x + (i - 1) * 0.07, 1.4, 0.28);
+        claw.rotation.x = Math.PI / 2;
+        dragonGroup.add(claw);
+        void side;
+      }
+    }
+
+    // ---- Legs (digitigrade — thigh, shin, foot) ----
+    const makeLeg = (sideX: number) => {
+      const leg = new THREE.Group();
+      leg.position.set(sideX, 0, 0);
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.85, 0.5), scaleMat);
+      thigh.position.set(0, 1.05, -0.05);
+      thigh.rotation.x = 0.3;
+      thigh.castShadow = true;
+      leg.add(thigh);
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.75, 0.35), scaleMat);
+      shin.position.set(0, 0.45, 0.18);
+      shin.rotation.x = -0.5;
+      shin.castShadow = true;
+      leg.add(shin);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.18, 0.7), scaleMat);
+      foot.position.set(0, 0.09, 0.4);
+      foot.castShadow = true;
+      leg.add(foot);
+      // toe claws
+      for (let i = -1; i <= 1; i++) {
+        const toe = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 4), clawMat);
+        toe.position.set(i * 0.13, 0.09, 0.78);
+        toe.rotation.x = Math.PI / 2;
+        leg.add(toe);
+      }
+      return leg;
+    };
+    const dLegL = makeLeg(-0.32);
+    const dLegR = makeLeg(0.32);
+    dragonGroup.add(dLegL, dragonGroup.add(dLegR) ? dLegR : dLegR);
+
+    // ---- Tail (segmented, swooshes behind) ----
+    const tailGroup = new THREE.Group();
+    tailGroup.position.set(0, 1.4, -0.4);
+    dragonGroup.add(tailGroup);
+    const tailSegs: THREE.Mesh[] = [];
+    let prev: THREE.Object3D = tailGroup;
+    for (let i = 0; i < 6; i++) {
+      const r = 0.32 - i * 0.04;
+      const seg = new THREE.Mesh(new THREE.BoxGeometry(r * 1.4, r * 1.4, 0.45), scaleMat);
+      seg.position.set(0, -0.05 * i, -0.4);
+      seg.castShadow = true;
+      prev.add(seg);
+      tailSegs.push(seg);
+      prev = seg;
+    }
+    // tail tip spike
+    const tailTip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 6), clawMat);
+    tailTip.position.set(0, 0, -0.4);
+    tailTip.rotation.x = -Math.PI / 2;
+    prev.add(tailTip);
+
+    // ---- Wings (folded behind shoulders) ----
+    const makeWing = (sideX: number, sign: number) => {
+      const w = new THREE.Group();
+      w.position.set(sideX, 2.3, -0.3);
+      // membrane — flat triangular plane
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 0);
+      shape.lineTo(sign * 1.4, 0.3);
+      shape.lineTo(sign * 1.1, -0.9);
+      shape.lineTo(sign * 0.6, -1.1);
+      shape.lineTo(0, -0.3);
+      shape.lineTo(0, 0);
+      const membrane = new THREE.Mesh(new THREE.ShapeGeometry(shape), wingMat);
+      membrane.rotation.y = sign * 0.6; // fold back
+      w.add(membrane);
+      // wing bone (top edge)
+      const bone = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.06), clawMat);
+      bone.position.set(sign * 0.7, 0.15, 0);
+      bone.rotation.y = sign * 0.6;
+      w.add(bone);
+      return w;
+    };
+    const wingL = makeWing(-0.5, -1);
+    const wingR = makeWing(0.5, 1);
+    dragonGroup.add(wingL, wingR);
+
+    // Stowed/equipped poses for weapons in dragon form
+    const dragonSheathPos = new THREE.Vector3(-0.25, 2.15, -0.45);
+    const dragonSheathRot = new THREE.Euler(-0.25, 0, 0.55);
+    const humanSheathPos = sheathGroup.position.clone();
+    const humanSheathRot = sheathGroup.rotation.clone();
+    const dragonBowStowedPos = new THREE.Vector3(0.3, 2.15, -0.5);
+    const dragonBowStowedRot = new THREE.Euler(0.2, 0, -0.55);
+    // (setDragonForm defined below, after swordPivot is created)
+
     // sword — bright neon red blade (hidden when not attacking, upgradable)
     const swordPivot = new THREE.Group();
     swordPivot.position.set(0.6, 1.1, 0);
@@ -586,6 +780,31 @@ export default function ZeldaGame3D() {
     };
     applySwordVisuals();
 
+    // ---- Dragon form toggle (now that swordPivot exists) ----
+    const dragonSwordPivotPos = new THREE.Vector3(0.85, 1.85, 0.1);
+    const humanSwordPivotPos = swordPivot.position.clone();
+    const setDragonForm = (on: boolean) => {
+      dragonGroup.visible = on;
+      for (const p of humanParts) p.visible = !on;
+      if (on) {
+        sheathGroup.position.copy(dragonSheathPos);
+        sheathGroup.rotation.copy(dragonSheathRot);
+        bowStowedPos.copy(dragonBowStowedPos);
+        bowStowedRot.copy(dragonBowStowedRot);
+        bowHeldPos.set(-0.85, 1.95, 0.7);
+        swordPivot.position.copy(dragonSwordPivotPos);
+      } else {
+        sheathGroup.position.copy(humanSheathPos);
+        sheathGroup.rotation.copy(humanSheathRot);
+        bowStowedPos.set(0.22, 1.45, -0.32);
+        bowStowedRot.set(0.2, 0, -0.55);
+        bowHeldPos.set(-0.55, 1.15, 0.55);
+        swordPivot.position.copy(humanSwordPivotPos);
+      }
+      setBowPose(false);
+    };
+    dragonFormRef.current = setDragonForm;
+
     // hero shadow disc fallback (in case shadows perform poorly)
     // (skip — using real shadows)
 
@@ -629,6 +848,7 @@ export default function ZeldaGame3D() {
     makeTunicPickup("white", 20, 8);
     makeTunicPickup("blue", -12, -10);
     makeTunicPickup("shadow", 14, -18);
+    makeTunicPickup("dragon", -22, -22);
 
     // ---- Hearts ----
     const hearts: HeartDrop[] = [];
@@ -1221,7 +1441,7 @@ export default function ZeldaGame3D() {
     let bowFirePressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
-        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow",
+        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow", "6": "dragon",
       };
       if (down && slotMap[e.key]) {
         e.preventDefault();
@@ -1355,6 +1575,20 @@ export default function ZeldaGame3D() {
       legR.rotation.x = moving ? -Math.sin(walkPhase) * 0.6 : 0;
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
       armR.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
+      // dragon-form anim: walk legs, swish tail, flap wings
+      if (st.tunic === "dragon") {
+        dLegL.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
+        dLegR.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
+        dArmL.rotation.x = moving ? -Math.sin(walkPhase) * 0.4 : Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        dArmR.rotation.x = moving ? Math.sin(walkPhase) * 0.4 : -Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        const t = clock.elapsedTime;
+        tailSegs.forEach((seg, i) => {
+          seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
+        });
+        wingL.rotation.z = Math.sin(t * 2.5) * 0.15;
+        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15;
+        dHead.rotation.x = Math.sin(t * 1.5) * 0.05;
+      }
 
       // --- Attack / Fire ---
       st.attackCd = Math.max(0, st.attackCd - dt);
@@ -1859,7 +2093,7 @@ export default function ZeldaGame3D() {
         <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground mb-2 text-center">
           Wardrobe
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           {(Object.keys(TUNICS) as TunicId[]).map((id, i) => {
             const t = TUNICS[id];
             const owned = hud.inventory.includes(id);
@@ -1900,7 +2134,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrows move · Space swing sword · B fire arrow · U upgrade sword · 1–5 tunic · Drag to orbit
+        WASD / Arrows move · Space swing sword · B fire arrow · U upgrade sword · 1–6 tunic (6 = DRAGON) · Drag to orbit
       </div>
 
       {/* Mobile controls */}
