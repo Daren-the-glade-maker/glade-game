@@ -21,6 +21,7 @@ const TUNICS: Record<TunicId, TunicDef> = {
   blue:   { id: "blue",   name: "Tide Tunic",   body: 0x4a8fb8, accent: 0xb8d8e8, trim: 0x1f3a52, perk: "Halves damage taken", speed: 6,  damageMul: 1,   damageTaken: 0.5 },
   white:  { id: "white",  name: "Wind Cloak",   body: 0xeae6dc, accent: 0xa9aab2, trim: 0x6c6e76, perk: "Faster on foot",      speed: 9,  damageMul: 1,   damageTaken: 1 },
   shadow: { id: "shadow", name: "Shadow Veil",  body: 0x2a2336, accent: 0x8a4ec2, trim: 0x14101c, perk: "Power + speed",       speed: 7.5,damageMul: 1.5, damageTaken: 1 },
+  dragon: { id: "dragon", name: "Dragon Scale",  body: 0x2a6f3a, accent: 0xffb01a, trim: 0x6b1a0a, perk: "DRAGON FORM — bipedal beast", speed: 8, damageMul: 2.0, damageTaken: 0.5 },
 };
 
 type MonsterType = "slime" | "bat" | "skeleton" | "knight" | "mage" | "boss";
