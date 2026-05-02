@@ -1575,6 +1575,20 @@ export default function ZeldaGame3D() {
       legR.rotation.x = moving ? -Math.sin(walkPhase) * 0.6 : 0;
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
       armR.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
+      // dragon-form anim: walk legs, swish tail, flap wings
+      if (st.tunic === "dragon") {
+        dLegL.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
+        dLegR.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
+        dArmL.rotation.x = moving ? -Math.sin(walkPhase) * 0.4 : Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        dArmR.rotation.x = moving ? Math.sin(walkPhase) * 0.4 : -Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        const t = clock.elapsedTime;
+        tailSegs.forEach((seg, i) => {
+          seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
+        });
+        wingL.rotation.z = Math.sin(t * 2.5) * 0.15;
+        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15;
+        dHead.rotation.x = Math.sin(t * 1.5) * 0.05;
+      }
 
       // --- Attack / Fire ---
       st.attackCd = Math.max(0, st.attackCd - dt);
