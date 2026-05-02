@@ -122,6 +122,7 @@ export default function ZeldaGame3D() {
   const heroBodyMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const heroAccentMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const heroTrimMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const dragonFormRef = useRef<(on: boolean) => void>(() => {});
   const toastTimerRef = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
