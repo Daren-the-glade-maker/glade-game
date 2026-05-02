@@ -2079,7 +2079,7 @@ export default function ZeldaGame3D() {
         <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground mb-2 text-center">
           Wardrobe
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           {(Object.keys(TUNICS) as TunicId[]).map((id, i) => {
             const t = TUNICS[id];
             const owned = hud.inventory.includes(id);
