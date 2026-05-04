@@ -1782,7 +1782,7 @@ export default function ZeldaGame3D() {
         st.flapImpulse = 0.45;
         st.flapCount += 1;
         st.flyY = Math.min(40, st.flyY + 1.6);
-        if (st.flapCount >= 6 && st.zone !== "sky") {
+        if (st.flapCount >= 6) {
           // ascend to sky biome!
           heroGroup.position.set(skyOrigin.x, 0, skyOrigin.z + 6);
           st.zone = "sky";
