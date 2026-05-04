@@ -94,7 +94,7 @@ export default function ZeldaGame3D() {
     attackTimer: 0,
     attackCd: 0,
     bossDefeated: false,
-    zone: "overworld" as "overworld" | "dungeon" | "desert",
+    zone: "overworld" as "overworld" | "dungeon" | "desert" | "sky",
     portalCooldown: 0,
     swordLevel: 1,
     swordShards: 0,
@@ -102,6 +102,13 @@ export default function ZeldaGame3D() {
     arrows: 20,
     bowCd: 0,
     bowDrawTimer: 0,
+    fireBreathCd: 0,
+    fireBreathTimer: 0,
+    flapCd: 0,
+    flapCount: 0,
+    flapWindow: 0,
+    flyY: 0,
+    flapImpulse: 0,
   });
 
   const [hud, setHud] = useState({
@@ -111,7 +118,7 @@ export default function ZeldaGame3D() {
     toast: "",
     won: false,
     near: "",
-    zone: "overworld" as "overworld" | "dungeon" | "desert",
+    zone: "overworld" as "overworld" | "dungeon" | "desert" | "sky",
     swordLevel: 1,
     swordShards: 0,
     weapon: "sword" as "sword" | "bow",
@@ -700,6 +707,21 @@ export default function ZeldaGame3D() {
     const wingL = makeWing(-0.5, -1);
     const wingR = makeWing(0.5, 1);
     dragonGroup.add(wingL, wingR);
+
+    // Fire breath cone — emerges from snout when F pressed in dragon form
+    const fireMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa22,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const fireBreath = new THREE.Mesh(new THREE.ConeGeometry(0.9, 4.5, 14, 1, true), fireMat);
+    fireBreath.rotation.x = Math.PI / 2;
+    fireBreath.position.set(0, 2.85, 1.2 + 4.5 / 2);
+    fireBreath.visible = false;
+    dragonGroup.add(fireBreath);
+    const fireLight = new THREE.PointLight(0xff7722, 0, 8);
+    fireLight.position.set(0, 2.85, 2.5);
+    dragonGroup.add(fireLight);
 
     // Stowed/equipped poses for weapons in dragon form
     const dragonSheathPos = new THREE.Vector3(-0.25, 2.15, -0.45);
@@ -1489,6 +1511,57 @@ export default function ZeldaGame3D() {
     spawnMonster("bat", desertOrigin.x, desertOrigin.z - 12);
     makeRupee(desertOrigin.x - 25, desertOrigin.z - 20, 20, 0xffaa00);
 
+    // ===== SKY BIOME =====
+    const skyOrigin = new THREE.Vector3(-300, 60, 0);
+    const skyGroup = new THREE.Group();
+    scene.add(skyGroup);
+    // floating cloud platform (main island)
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, emissive: 0x88aaff, emissiveIntensity: 0.15, roughness: 1 });
+    const skyPlatform = new THREE.Mesh(new THREE.CylinderGeometry(14, 16, 1.4, 24), cloudMat);
+    skyPlatform.position.set(skyOrigin.x, skyOrigin.y - 0.7, skyOrigin.z);
+    skyPlatform.receiveShadow = true;
+    skyGroup.add(skyPlatform);
+    // puffy cloud bumps on edges
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      const r = 13 + Math.random() * 2;
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(1.6 + Math.random() * 1.0, 10, 8), cloudMat);
+      puff.position.set(skyOrigin.x + Math.cos(a) * r, skyOrigin.y + 0.2, skyOrigin.z + Math.sin(a) * r);
+      skyGroup.add(puff);
+    }
+    // smaller floating islands as scenery
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const dist = 30 + Math.random() * 40;
+      const isle = new THREE.Mesh(new THREE.SphereGeometry(3 + Math.random() * 2, 10, 8), cloudMat);
+      isle.position.set(skyOrigin.x + Math.cos(a) * dist, skyOrigin.y + (Math.random() - 0.5) * 14, skyOrigin.z + Math.sin(a) * dist);
+      skyGroup.add(isle);
+    }
+    // sun beacon
+    const skySun = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffeeaa })
+    );
+    skySun.position.set(skyOrigin.x + 50, skyOrigin.y + 30, skyOrigin.z - 40);
+    skyGroup.add(skySun);
+    skyGroup.add(new THREE.PointLight(0xffe6b0, 1.2, 200));
+
+    // sky flying enemies (bats)
+    const skyBatPositions: Array<[number, number]> = [
+      [skyOrigin.x + 6, skyOrigin.z - 4],
+      [skyOrigin.x - 6, skyOrigin.z + 4],
+      [skyOrigin.x + 2, skyOrigin.z + 8],
+      [skyOrigin.x - 8, skyOrigin.z - 8],
+    ];
+    for (const [bx2, bz2] of skyBatPositions) {
+      spawnMonster("bat", bx2, bz2);
+      const last = monsters[monsters.length - 1];
+      last.group.position.y = skyOrigin.y + 1.6;
+      // tag as sky bat by stashing baseY in bobPhase via custom property
+      (last as unknown as { baseY: number }).baseY = skyOrigin.y;
+    }
+
+
 
     // Enemies & rewards per room
     // Room A — entry skirmish
@@ -1566,6 +1639,8 @@ export default function ZeldaGame3D() {
     const keys = new Set<string>();
     let attackPressed = false;
     let bowFirePressed = false;
+    let firePressed = false;
+    let flapPressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
         "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow", "6": "dragon",
@@ -1576,14 +1651,21 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","f","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
+        if (keys.has(k)) return; // ignore key repeat
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
         if (k === "b") {
           bowFirePressed = true;
+        }
+        if (k === "f") {
+          firePressed = true;
+        }
+        if (k === "shift") {
+          flapPressed = true;
         }
         if (k === "u") {
           const s = stateRef.current;
@@ -1699,7 +1781,44 @@ export default function ZeldaGame3D() {
 
       // walk bob
       const bob = moving ? Math.sin(walkPhase) * 0.06 : 0;
-      heroGroup.position.y = bob;
+      // dragon flight Y handling
+      st.flapCd = Math.max(0, st.flapCd - dt);
+      st.flapWindow = Math.max(0, st.flapWindow - dt);
+      st.flapImpulse = Math.max(0, st.flapImpulse - dt);
+      if (st.flapWindow <= 0) st.flapCount = 0;
+      if (st.tunic === "dragon" && st.zone !== "sky" && flapPressed && st.flapCd <= 0) {
+        st.flapCd = 0.25;
+        st.flapWindow = 1.4;
+        st.flapImpulse = 0.45;
+        st.flapCount += 1;
+        st.flyY = Math.min(40, st.flyY + 1.6);
+        if (st.flapCount >= 6) {
+          // ascend to sky biome!
+          heroGroup.position.set(skyOrigin.x, 0, skyOrigin.z + 6);
+          st.zone = "sky";
+          st.flapCount = 0;
+          st.flyY = 0;
+          st.portalCooldown = 1.2;
+          st.iframes = 0.8;
+          setHud((h) => ({ ...h, zone: "sky" }));
+          showToast("Soared into the Cloud Reach");
+        }
+      }
+      // sky-zone hover: shift gives lift, gravity pulls down to platform level
+      if (st.zone === "sky") {
+        if (st.tunic === "dragon" && flapPressed && st.flapCd <= 0) {
+          st.flapCd = 0.2;
+          st.flapImpulse = 0.4;
+          st.flyY = Math.min(20, st.flyY + 1.0);
+        }
+        st.flyY = Math.max(0, st.flyY - dt * 4); // gravity down to platform
+      } else {
+        // outside sky, decay flyY when not flapping
+        st.flyY = Math.max(0, st.flyY - dt * 3.5);
+      }
+      const baseY = st.zone === "sky" ? skyOrigin.y : 0;
+      heroGroup.position.y = baseY + bob + st.flyY;
+      flapPressed = false;
       legL.rotation.x = moving ? Math.sin(walkPhase) * 0.6 : 0;
       legR.rotation.x = moving ? -Math.sin(walkPhase) * 0.6 : 0;
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
@@ -1714,8 +1833,9 @@ export default function ZeldaGame3D() {
         tailSegs.forEach((seg, i) => {
           seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
         });
-        wingL.rotation.z = Math.sin(t * 2.5) * 0.15;
-        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15;
+        const flapBoost = st.flapImpulse > 0 ? 1.1 * (st.flapImpulse / 0.45) : 0;
+        wingL.rotation.z = Math.sin(t * 2.5) * 0.15 + flapBoost;
+        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15 - flapBoost;
         dHead.rotation.x = Math.sin(t * 1.5) * 0.05;
       }
 
@@ -1748,6 +1868,49 @@ export default function ZeldaGame3D() {
           st.bowCd = 0.3;
         }
       }
+      // Dragon fire breath — F
+      st.fireBreathCd = Math.max(0, st.fireBreathCd - dt);
+      if (firePressed && st.tunic === "dragon" && st.fireBreathCd <= 0) {
+        st.fireBreathTimer = 0.45;
+        st.fireBreathCd = 0.9;
+      }
+      // animate fire breath visual
+      if (st.fireBreathTimer > 0) {
+        st.fireBreathTimer = Math.max(0, st.fireBreathTimer - dt);
+        const t = st.fireBreathTimer / 0.45;
+        fireBreath.visible = true;
+        const s = 0.6 + (1 - t) * 0.6;
+        fireBreath.scale.set(s, 1 + (1 - t) * 0.3, s);
+        fireMat.opacity = 0.4 + t * 0.5;
+        fireMat.color.setHex(t > 0.5 ? 0xffee66 : 0xff5522);
+        fireLight.intensity = 2.4 * t;
+        // damage monsters in cone in front of hero
+        const fwdDir = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+        const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+        for (const m of monsters) {
+          if (!m.alive) continue;
+          const to = new THREE.Vector3(m.group.position.x - origin.x, 0, m.group.position.z - origin.z);
+          const d = to.length();
+          if (d < 6 && d > 0.01) {
+            const dot = to.normalize().dot(fwdDir);
+            if (dot > 0.55 && m.hitFlash <= 0) {
+              const dmg = 2 * tunic.damageMul;
+              m.hp -= dmg;
+              m.hitFlash = 0.15;
+              if (m.hp <= 0) {
+                m.alive = false;
+                scene.remove(m.group);
+                st.rupees += m.def.rupees;
+                setHud((h) => ({ ...h, rupees: st.rupees }));
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+              }
+            }
+          }
+        }
+      } else {
+        fireBreath.visible = false;
+        fireLight.intensity = 0;
+      }
       // bow draw timer — return bow to back when done
       if (st.bowDrawTimer > 0) {
         st.bowDrawTimer = Math.max(0, st.bowDrawTimer - dt);
@@ -1757,6 +1920,7 @@ export default function ZeldaGame3D() {
       if (bowString.scale.x < 1) bowString.scale.x = Math.min(1, bowString.scale.x + dt * 6);
       attackPressed = false;
       bowFirePressed = false;
+      firePressed = false;
       if (st.attackTimer > 0) {
         st.attackTimer -= dt;
         // swing arc 0..1
@@ -1932,7 +2096,8 @@ export default function ZeldaGame3D() {
         if (m.def.type === "bat") {
           // hover and chase
           m.bobPhase += dt * 4;
-          m.group.position.y = 1.6 + Math.sin(m.bobPhase) * 0.3;
+          const baseY = (m as unknown as { baseY?: number }).baseY ?? 0;
+          m.group.position.y = baseY + 1.6 + Math.sin(m.bobPhase) * 0.3;
           const wL = m.group.getObjectByName("wingL") as THREE.Mesh | undefined;
           const wR = m.group.getObjectByName("wingR") as THREE.Mesh | undefined;
           if (wL) wL.rotation.z = Math.sin(m.bobPhase * 4) * 0.8;
@@ -2285,7 +2450,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrows move · Space swing sword · B fire arrow · U upgrade sword · 1–6 tunic (6 = DRAGON) · Drag to orbit
+        WASD/Arrows move · Space sword · B arrow · F dragon fire · Shift flap (×6 → Sky) · U upgrade · 1–6 tunic · Drag orbit
       </div>
 
       {/* Mobile controls */}
