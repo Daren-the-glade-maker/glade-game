@@ -1363,6 +1363,133 @@ export default function ZeldaGame3D() {
     exitLight.position.y = 1.8;
     exitPortal.add(exitLight);
 
+    // ============================================================
+    // ---- DESERT BIOME ----
+    // ============================================================
+    const desertOrigin = new THREE.Vector3(300, 0, 0);
+    const desertGroup = new THREE.Group();
+    scene.add(desertGroup);
+
+    // Sand floor
+    const desertFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 120, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0xe6c878, roughness: 1 })
+    );
+    desertFloor.rotation.x = -Math.PI / 2;
+    desertFloor.position.set(desertOrigin.x, 0, desertOrigin.z);
+    desertFloor.receiveShadow = true;
+    desertGroup.add(desertFloor);
+
+    // Dunes (low-poly mounds)
+    for (let i = 0; i < 24; i++) {
+      const r = 3 + Math.random() * 5;
+      const dune = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0xd9b86a, roughness: 1 })
+      );
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 10 + Math.random() * 45;
+      dune.position.set(desertOrigin.x + Math.cos(ang) * dist, -0.2, desertOrigin.z + Math.sin(ang) * dist);
+      dune.scale.y = 0.35 + Math.random() * 0.3;
+      dune.receiveShadow = true;
+      desertGroup.add(dune);
+    }
+
+    // Cacti
+    for (let i = 0; i < 14; i++) {
+      const cx = desertOrigin.x + (Math.random() - 0.5) * 90;
+      const cz = desertOrigin.z + (Math.random() - 0.5) * 90;
+      if (Math.hypot(cx - desertOrigin.x, cz - desertOrigin.z) < 6) continue;
+      const cactus = new THREE.Group();
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.4, 2.2, 8),
+        new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 })
+      );
+      trunk.position.y = 1.1;
+      trunk.castShadow = true;
+      cactus.add(trunk);
+      if (Math.random() > 0.4) {
+        const arm = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.22, 0.25, 1.2, 8),
+          new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 })
+        );
+        arm.position.set(0.55, 1.4, 0);
+        arm.rotation.z = -Math.PI / 2.5;
+        cactus.add(arm);
+      }
+      cactus.position.set(cx, 0, cz);
+      desertGroup.add(cactus);
+      obstacles.push({ pos: new THREE.Vector3(cx, 0, cz), radius: 0.6 });
+    }
+
+    // Pyramid landmark
+    const pyramid = new THREE.Mesh(
+      new THREE.ConeGeometry(8, 10, 4),
+      new THREE.MeshStandardMaterial({ color: 0xc8a868, roughness: 1 })
+    );
+    pyramid.position.set(desertOrigin.x - 25, 5, desertOrigin.z - 20);
+    pyramid.rotation.y = Math.PI / 4;
+    pyramid.castShadow = true;
+    pyramid.receiveShadow = true;
+    desertGroup.add(pyramid);
+
+    // Sun light tint object (visual only)
+    const sunOrb = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffd27a })
+    );
+    sunOrb.position.set(desertOrigin.x + 40, 30, desertOrigin.z - 40);
+    desertGroup.add(sunOrb);
+
+    // Desert return portal (back to dungeon)
+    const desertReturn = new THREE.Group();
+    desertReturn.position.set(desertOrigin.x, 0, desertOrigin.z + 6);
+    desertGroup.add(desertReturn);
+    const drRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.4, 0.18, 12, 32),
+      new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0xff8800, emissiveIntensity: 0.8, metalness: 0.5 })
+    );
+    drRing.rotation.x = Math.PI / 2;
+    drRing.position.y = 1.8;
+    desertReturn.add(drRing);
+    const drDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.25, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+    );
+    drDisc.rotation.x = Math.PI / 2;
+    drDisc.position.y = 1.8;
+    desertReturn.add(drDisc);
+    desertReturn.add(new THREE.PointLight(0xffb060, 1.4, 8));
+
+    // Dungeon -> Desert portal (in Room D, the mage sanctum)
+    const dungeonDesertPortal = new THREE.Group();
+    dungeonDesertPortal.position.set(dx, 0, dz - 6);
+    dungeonGroup.add(dungeonDesertPortal);
+    const ddRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.4, 0.18, 12, 32),
+      new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0xff8800, emissiveIntensity: 0.9, metalness: 0.5 })
+    );
+    ddRing.rotation.x = Math.PI / 2;
+    ddRing.position.y = 1.8;
+    dungeonDesertPortal.add(ddRing);
+    const ddDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.25, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+    );
+    ddDisc.rotation.x = Math.PI / 2;
+    ddDisc.position.y = 1.8;
+    dungeonDesertPortal.add(ddDisc);
+    const ddLight = new THREE.PointLight(0xffb060, 1.4, 8);
+    ddLight.position.y = 1.8;
+    dungeonDesertPortal.add(ddLight);
+
+    // Desert enemies
+    spawnMonster("skeleton", desertOrigin.x + 8, desertOrigin.z - 6);
+    spawnMonster("skeleton", desertOrigin.x - 8, desertOrigin.z + 6);
+    spawnMonster("bat", desertOrigin.x, desertOrigin.z - 12);
+    makeRupee(desertOrigin.x - 25, desertOrigin.z - 20, 20, 0xffaa00);
+
+
     // Enemies & rewards per room
     // Room A — entry skirmish
     spawnMonster("skeleton", dox - 6, doz - 4);
