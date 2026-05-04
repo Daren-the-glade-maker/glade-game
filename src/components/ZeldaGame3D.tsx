@@ -94,7 +94,7 @@ export default function ZeldaGame3D() {
     attackTimer: 0,
     attackCd: 0,
     bossDefeated: false,
-    zone: "overworld" as "overworld" | "dungeon" | "desert",
+    zone: "overworld" as "overworld" | "dungeon" | "desert" | "sky",
     portalCooldown: 0,
     swordLevel: 1,
     swordShards: 0,
@@ -102,6 +102,13 @@ export default function ZeldaGame3D() {
     arrows: 20,
     bowCd: 0,
     bowDrawTimer: 0,
+    fireBreathCd: 0,
+    fireBreathTimer: 0,
+    flapCd: 0,
+    flapCount: 0,
+    flapWindow: 0,
+    flyY: 0,
+    flapImpulse: 0,
   });
 
   const [hud, setHud] = useState({
