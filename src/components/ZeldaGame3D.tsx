@@ -118,7 +118,7 @@ export default function ZeldaGame3D() {
     toast: "",
     won: false,
     near: "",
-    zone: "overworld" as "overworld" | "dungeon" | "desert",
+    zone: "overworld" as "overworld" | "dungeon" | "desert" | "sky",
     swordLevel: 1,
     swordShards: 0,
     weapon: "sword" as "sword" | "bow",
