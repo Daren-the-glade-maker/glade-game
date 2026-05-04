@@ -1771,7 +1771,44 @@ export default function ZeldaGame3D() {
 
       // walk bob
       const bob = moving ? Math.sin(walkPhase) * 0.06 : 0;
-      heroGroup.position.y = bob;
+      // dragon flight Y handling
+      st.flapCd = Math.max(0, st.flapCd - dt);
+      st.flapWindow = Math.max(0, st.flapWindow - dt);
+      st.flapImpulse = Math.max(0, st.flapImpulse - dt);
+      if (st.flapWindow <= 0) st.flapCount = 0;
+      if (st.tunic === "dragon" && st.zone !== "sky" && flapPressed && st.flapCd <= 0) {
+        st.flapCd = 0.25;
+        st.flapWindow = 1.4;
+        st.flapImpulse = 0.45;
+        st.flapCount += 1;
+        st.flyY = Math.min(40, st.flyY + 1.6);
+        if (st.flapCount >= 6 && st.zone !== "sky") {
+          // ascend to sky biome!
+          heroGroup.position.set(skyOrigin.x, 0, skyOrigin.z + 6);
+          st.zone = "sky";
+          st.flapCount = 0;
+          st.flyY = 0;
+          st.portalCooldown = 1.2;
+          st.iframes = 0.8;
+          setHud((h) => ({ ...h, zone: "sky" }));
+          showToast("Soared into the Cloud Reach");
+        }
+      }
+      // sky-zone hover: shift gives lift, gravity pulls down to platform level
+      if (st.zone === "sky") {
+        if (st.tunic === "dragon" && flapPressed && st.flapCd <= 0) {
+          st.flapCd = 0.2;
+          st.flapImpulse = 0.4;
+          st.flyY = Math.min(20, st.flyY + 1.0);
+        }
+        st.flyY = Math.max(0, st.flyY - dt * 4); // gravity down to platform
+      } else {
+        // outside sky, decay flyY when not flapping
+        st.flyY = Math.max(0, st.flyY - dt * 3.5);
+      }
+      const baseY = st.zone === "sky" ? skyOrigin.y : 0;
+      heroGroup.position.y = baseY + bob + st.flyY;
+      flapPressed = false;
       legL.rotation.x = moving ? Math.sin(walkPhase) * 0.6 : 0;
       legR.rotation.x = moving ? -Math.sin(walkPhase) * 0.6 : 0;
       armL.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
