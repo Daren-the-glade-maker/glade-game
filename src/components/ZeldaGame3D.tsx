@@ -708,6 +708,21 @@ export default function ZeldaGame3D() {
     const wingR = makeWing(0.5, 1);
     dragonGroup.add(wingL, wingR);
 
+    // Fire breath cone — emerges from snout when F pressed in dragon form
+    const fireMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa22,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const fireBreath = new THREE.Mesh(new THREE.ConeGeometry(0.9, 4.5, 14, 1, true), fireMat);
+    fireBreath.rotation.x = Math.PI / 2;
+    fireBreath.position.set(0, 2.85, 1.2 + 4.5 / 2);
+    fireBreath.visible = false;
+    dragonGroup.add(fireBreath);
+    const fireLight = new THREE.PointLight(0xff7722, 0, 8);
+    fireLight.position.set(0, 2.85, 2.5);
+    dragonGroup.add(fireLight);
+
     // Stowed/equipped poses for weapons in dragon form
     const dragonSheathPos = new THREE.Vector3(-0.25, 2.15, -0.45);
     const dragonSheathRot = new THREE.Euler(-0.25, 0, 0.55);
