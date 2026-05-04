@@ -1857,6 +1857,49 @@ export default function ZeldaGame3D() {
           st.bowCd = 0.3;
         }
       }
+      // Dragon fire breath — F
+      st.fireBreathCd = Math.max(0, st.fireBreathCd - dt);
+      if (firePressed && st.tunic === "dragon" && st.fireBreathCd <= 0) {
+        st.fireBreathTimer = 0.45;
+        st.fireBreathCd = 0.9;
+      }
+      // animate fire breath visual
+      if (st.fireBreathTimer > 0) {
+        st.fireBreathTimer = Math.max(0, st.fireBreathTimer - dt);
+        const t = st.fireBreathTimer / 0.45;
+        fireBreath.visible = true;
+        const s = 0.6 + (1 - t) * 0.6;
+        fireBreath.scale.set(s, 1 + (1 - t) * 0.3, s);
+        fireMat.opacity = 0.4 + t * 0.5;
+        fireMat.color.setHex(t > 0.5 ? 0xffee66 : 0xff5522);
+        fireLight.intensity = 2.4 * t;
+        // damage monsters in cone in front of hero
+        const fwdDir = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+        const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+        for (const m of monsters) {
+          if (!m.alive) continue;
+          const to = new THREE.Vector3(m.group.position.x - origin.x, 0, m.group.position.z - origin.z);
+          const d = to.length();
+          if (d < 6 && d > 0.01) {
+            const dot = to.normalize().dot(fwdDir);
+            if (dot > 0.55 && m.hitFlash <= 0) {
+              const dmg = 2 * tunic.damageMul;
+              m.hp -= dmg;
+              m.hitFlash = 0.15;
+              if (m.hp <= 0) {
+                m.alive = false;
+                scene.remove(m.group);
+                st.rupees += m.def.rupees;
+                setHud((h) => ({ ...h, rupees: st.rupees }));
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+              }
+            }
+          }
+        }
+      } else {
+        fireBreath.visible = false;
+        fireLight.intensity = 0;
+      }
       // bow draw timer — return bow to back when done
       if (st.bowDrawTimer > 0) {
         st.bowDrawTimer = Math.max(0, st.bowDrawTimer - dt);
@@ -1866,6 +1909,7 @@ export default function ZeldaGame3D() {
       if (bowString.scale.x < 1) bowString.scale.x = Math.min(1, bowString.scale.x + dt * 6);
       attackPressed = false;
       bowFirePressed = false;
+      firePressed = false;
       if (st.attackTimer > 0) {
         st.attackTimer -= dt;
         // swing arc 0..1
