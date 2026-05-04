@@ -2450,7 +2450,7 @@ export default function ZeldaGame3D() {
       </div>
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD / Arrows move · Space swing sword · B fire arrow · U upgrade sword · 1–6 tunic (6 = DRAGON) · Drag to orbit
+        WASD/Arrows move · Space sword · B arrow · F dragon fire · Shift flap (×6 → Sky) · U upgrade · 1–6 tunic · Drag orbit
       </div>
 
       {/* Mobile controls */}
