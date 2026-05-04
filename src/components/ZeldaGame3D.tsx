@@ -1547,10 +1547,20 @@ export default function ZeldaGame3D() {
     skyGroup.add(new THREE.PointLight(0xffe6b0, 1.2, 200));
 
     // sky flying enemies (bats)
-    spawnMonster("bat", skyOrigin.x + 6, skyOrigin.z - 4);
-    spawnMonster("bat", skyOrigin.x - 6, skyOrigin.z + 4);
-    spawnMonster("bat", skyOrigin.x + 2, skyOrigin.z + 8);
-    spawnMonster("bat", skyOrigin.x - 8, skyOrigin.z - 8);
+    const skyBatPositions: Array<[number, number]> = [
+      [skyOrigin.x + 6, skyOrigin.z - 4],
+      [skyOrigin.x - 6, skyOrigin.z + 4],
+      [skyOrigin.x + 2, skyOrigin.z + 8],
+      [skyOrigin.x - 8, skyOrigin.z - 8],
+    ];
+    for (const [bx2, bz2] of skyBatPositions) {
+      spawnMonster("bat", bx2, bz2);
+      const last = monsters[monsters.length - 1];
+      last.group.position.y = skyOrigin.y + 1.6;
+      // tag as sky bat by stashing baseY in bobPhase via custom property
+      (last as unknown as { baseY: number }).baseY = skyOrigin.y;
+    }
+
 
 
     // Enemies & rewards per room
