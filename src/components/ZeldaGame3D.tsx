@@ -2095,7 +2095,8 @@ export default function ZeldaGame3D() {
         if (m.def.type === "bat") {
           // hover and chase
           m.bobPhase += dt * 4;
-          m.group.position.y = 1.6 + Math.sin(m.bobPhase) * 0.3;
+          const baseY = (m as unknown as { baseY?: number }).baseY ?? 0;
+          m.group.position.y = baseY + 1.6 + Math.sin(m.bobPhase) * 0.3;
           const wL = m.group.getObjectByName("wingL") as THREE.Mesh | undefined;
           const wR = m.group.getObjectByName("wingR") as THREE.Mesh | undefined;
           if (wL) wL.rotation.z = Math.sin(m.bobPhase * 4) * 0.8;
