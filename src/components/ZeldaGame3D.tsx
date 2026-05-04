@@ -1855,13 +1855,16 @@ export default function ZeldaGame3D() {
       ringFrame.rotation.z += dt * 0.4;
       exitDisc.rotation.z -= dt * 1.5;
       exitRing.rotation.z -= dt * 0.4;
+      ddDisc.rotation.z += dt * 1.5;
+      ddRing.rotation.z += dt * 0.4;
+      drDisc.rotation.z -= dt * 1.5;
+      drRing.rotation.z -= dt * 0.4;
       st.portalCooldown = Math.max(0, st.portalCooldown - dt);
 
       if (st.portalCooldown <= 0) {
         if (st.zone === "overworld") {
           const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - (-10));
           if (dToPortal < 1.5) {
-            // teleport into the dungeon
             heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
             st.zone = "dungeon";
             st.portalCooldown = 1.2;
@@ -1869,7 +1872,7 @@ export default function ZeldaGame3D() {
             setHud((h) => ({ ...h, zone: "dungeon" }));
             showToast("Entered the Hollow Keep");
           }
-        } else {
+        } else if (st.zone === "dungeon") {
           const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 14));
           if (dExit < 1.5) {
             heroGroup.position.set(4, 0, -7);
@@ -1878,6 +1881,25 @@ export default function ZeldaGame3D() {
             st.iframes = 0.8;
             setHud((h) => ({ ...h, zone: "overworld" }));
             showToast("Returned to the Glade");
+          }
+          const dDesert = Math.hypot(heroGroup.position.x - dungeonDesertPortal.position.x, heroGroup.position.z - dungeonDesertPortal.position.z);
+          if (dDesert < 1.5) {
+            heroGroup.position.set(desertOrigin.x, 0, desertOrigin.z + 10);
+            st.zone = "desert";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            setHud((h) => ({ ...h, zone: "desert" }));
+            showToast("Stepped into the Sun-Scorched Wastes");
+          }
+        } else if (st.zone === "desert") {
+          const dBack = Math.hypot(heroGroup.position.x - desertReturn.position.x, heroGroup.position.z - desertReturn.position.z);
+          if (dBack < 1.5) {
+            heroGroup.position.set(dungeonDesertPortal.position.x, 0, dungeonDesertPortal.position.z + 3);
+            st.zone = "dungeon";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            setHud((h) => ({ ...h, zone: "dungeon" }));
+            showToast("Returned to the Hollow Keep");
           }
         }
       }
