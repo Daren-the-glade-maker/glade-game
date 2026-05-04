@@ -1496,6 +1496,47 @@ export default function ZeldaGame3D() {
     spawnMonster("bat", desertOrigin.x, desertOrigin.z - 12);
     makeRupee(desertOrigin.x - 25, desertOrigin.z - 20, 20, 0xffaa00);
 
+    // ===== SKY BIOME =====
+    const skyOrigin = new THREE.Vector3(-300, 60, 0);
+    const skyGroup = new THREE.Group();
+    scene.add(skyGroup);
+    // floating cloud platform (main island)
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, emissive: 0x88aaff, emissiveIntensity: 0.15, roughness: 1 });
+    const skyPlatform = new THREE.Mesh(new THREE.CylinderGeometry(14, 16, 1.4, 24), cloudMat);
+    skyPlatform.position.set(skyOrigin.x, skyOrigin.y - 0.7, skyOrigin.z);
+    skyPlatform.receiveShadow = true;
+    skyGroup.add(skyPlatform);
+    // puffy cloud bumps on edges
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      const r = 13 + Math.random() * 2;
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(1.6 + Math.random() * 1.0, 10, 8), cloudMat);
+      puff.position.set(skyOrigin.x + Math.cos(a) * r, skyOrigin.y + 0.2, skyOrigin.z + Math.sin(a) * r);
+      skyGroup.add(puff);
+    }
+    // smaller floating islands as scenery
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const dist = 30 + Math.random() * 40;
+      const isle = new THREE.Mesh(new THREE.SphereGeometry(3 + Math.random() * 2, 10, 8), cloudMat);
+      isle.position.set(skyOrigin.x + Math.cos(a) * dist, skyOrigin.y + (Math.random() - 0.5) * 14, skyOrigin.z + Math.sin(a) * dist);
+      skyGroup.add(isle);
+    }
+    // sun beacon
+    const skySun = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffeeaa })
+    );
+    skySun.position.set(skyOrigin.x + 50, skyOrigin.y + 30, skyOrigin.z - 40);
+    skyGroup.add(skySun);
+    skyGroup.add(new THREE.PointLight(0xffe6b0, 1.2, 200));
+
+    // sky flying enemies (bats)
+    spawnMonster("bat", skyOrigin.x + 6, skyOrigin.z - 4);
+    spawnMonster("bat", skyOrigin.x - 6, skyOrigin.z + 4);
+    spawnMonster("bat", skyOrigin.x + 2, skyOrigin.z + 8);
+    spawnMonster("bat", skyOrigin.x - 8, skyOrigin.z - 8);
+
 
     // Enemies & rewards per room
     // Room A — entry skirmish
