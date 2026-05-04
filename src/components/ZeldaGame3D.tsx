@@ -1629,6 +1629,8 @@ export default function ZeldaGame3D() {
     const keys = new Set<string>();
     let attackPressed = false;
     let bowFirePressed = false;
+    let firePressed = false;
+    let flapPressed = false;
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const slotMap: Record<string, TunicId> = {
         "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow", "6": "dragon",
@@ -1639,14 +1641,21 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","shift"].includes(k)) {
+      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","f","shift"].includes(k)) {
         e.preventDefault();
       }
       if (down) {
+        if (keys.has(k)) return; // ignore key repeat
         keys.add(k);
         if (k === " " || k === "j" || k === "z") attackPressed = true;
         if (k === "b") {
           bowFirePressed = true;
+        }
+        if (k === "f") {
+          firePressed = true;
+        }
+        if (k === "shift") {
+          flapPressed = true;
         }
         if (k === "u") {
           const s = stateRef.current;
