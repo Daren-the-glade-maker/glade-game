@@ -1833,8 +1833,9 @@ export default function ZeldaGame3D() {
         tailSegs.forEach((seg, i) => {
           seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
         });
-        wingL.rotation.z = Math.sin(t * 2.5) * 0.15;
-        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15;
+        const flapBoost = st.flapImpulse > 0 ? 1.1 * (st.flapImpulse / 0.45) : 0;
+        wingL.rotation.z = Math.sin(t * 2.5) * 0.15 + flapBoost;
+        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15 - flapBoost;
         dHead.rotation.x = Math.sin(t * 1.5) * 0.05;
       }
 
