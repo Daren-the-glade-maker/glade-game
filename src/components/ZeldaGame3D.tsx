@@ -1568,12 +1568,90 @@ export default function ZeldaGame3D() {
       [skyOrigin.x - 8, skyOrigin.z - 8],
     ];
     for (const [bx2, bz2] of skyBatPositions) {
-      spawnMonster("bat", bx2, bz2);
+      spawnMonster("bat", bx2, bz2, "sky");
       const last = monsters[monsters.length - 1];
       last.group.position.y = skyOrigin.y + 1.6;
       // tag as sky bat by stashing baseY in bobPhase via custom property
       (last as unknown as { baseY: number }).baseY = skyOrigin.y;
     }
+    // extra flying monsters for the sky biome
+    const extraSkyBats: Array<[number, number]> = [
+      [skyOrigin.x + 12, skyOrigin.z + 2],
+      [skyOrigin.x - 12, skyOrigin.z - 2],
+      [skyOrigin.x + 4, skyOrigin.z - 14],
+      [skyOrigin.x - 4, skyOrigin.z + 14],
+    ];
+    for (const [bx3, bz3] of extraSkyBats) {
+      spawnMonster("bat", bx3, bz3, "sky");
+      const last = monsters[monsters.length - 1];
+      last.group.position.y = skyOrigin.y + 2.2;
+      (last as unknown as { baseY: number }).baseY = skyOrigin.y + 0.6;
+    }
+
+    // floating drifting cloud puffs around the sky island for atmosphere
+    const driftClouds: THREE.Mesh[] = [];
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const dist = 18 + Math.random() * 35;
+      const cluster = new THREE.Group();
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < n; k++) {
+        const puff = new THREE.Mesh(
+          new THREE.SphereGeometry(2 + Math.random() * 1.6, 10, 8),
+          cloudMat
+        );
+        puff.position.set((k - n / 2) * 1.6, Math.random() * 0.6, Math.random() * 0.8);
+        cluster.add(puff);
+      }
+      cluster.position.set(
+        skyOrigin.x + Math.cos(a) * dist,
+        skyOrigin.y + (Math.random() - 0.5) * 18,
+        skyOrigin.z + Math.sin(a) * dist
+      );
+      skyGroup.add(cluster);
+      driftClouds.push(cluster as unknown as THREE.Mesh);
+    }
+
+    // Sky return portals — one back to the dungeon, one to the desert
+    const skyToDungeonPortal = new THREE.Group();
+    skyToDungeonPortal.position.set(skyOrigin.x + 8, skyOrigin.y + 0.2, skyOrigin.z + 6);
+    skyGroup.add(skyToDungeonPortal);
+    const sdRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.2, 0.18, 12, 28),
+      new THREE.MeshStandardMaterial({ color: 0x6aa6ff, emissive: 0x224488, emissiveIntensity: 1.2, roughness: 0.3 })
+    );
+    sdRing.rotation.x = Math.PI / 2;
+    sdRing.position.y = 1.6;
+    skyToDungeonPortal.add(sdRing);
+    const sdDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.05, 28),
+      new THREE.MeshStandardMaterial({ color: 0x88c0ff, emissive: 0x335599, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    sdDisc.rotation.x = Math.PI / 2;
+    sdDisc.position.y = 1.6;
+    skyToDungeonPortal.add(sdDisc);
+    skyToDungeonPortal.add(new THREE.PointLight(0x6aa6ff, 1.2, 8));
+
+    const skyToDesertPortal = new THREE.Group();
+    skyToDesertPortal.position.set(skyOrigin.x - 8, skyOrigin.y + 0.2, skyOrigin.z + 6);
+    skyGroup.add(skyToDesertPortal);
+    const ssRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.2, 0.18, 12, 28),
+      new THREE.MeshStandardMaterial({ color: 0xffb060, emissive: 0x884422, emissiveIntensity: 1.2, roughness: 0.3 })
+    );
+    ssRing.rotation.x = Math.PI / 2;
+    ssRing.position.y = 1.6;
+    skyToDesertPortal.add(ssRing);
+    const ssDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1.05, 28),
+      new THREE.MeshStandardMaterial({ color: 0xffd0a0, emissive: 0x884422, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ssDisc.rotation.x = Math.PI / 2;
+    ssDisc.position.y = 1.6;
+    skyToDesertPortal.add(ssDisc);
+    skyToDesertPortal.add(new THREE.PointLight(0xffb060, 1.2, 8));
+
+
 
 
 
