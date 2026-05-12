@@ -275,7 +275,7 @@ export default function ZeldaGame3D() {
     );
     creek.rotation.x = -Math.PI / 2;
     creek.position.set(-6, 0.03, 7);
-    scene.add(creek);
+    scene.add(creek); overworldVisuals.push(creek);
     // bridge planks
     const bridgeWoodMat = new THREE.MeshStandardMaterial({ color: 0x8a5a30, roughness: 0.9 });
     for (let i = 0; i < 5; i++) {
