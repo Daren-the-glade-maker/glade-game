@@ -221,7 +221,7 @@ export default function ZeldaGame3D() {
         m.rotation.x = -Math.PI / 2;
         m.position.set(-WORLD / 2 + tileSize / 2 + i * tileSize, 0.01, -WORLD / 2 + tileSize / 2 + j * tileSize);
         m.receiveShadow = true;
-        scene.add(m);
+        scene.add(m); overworldVisuals.push(m);
       }
     }
 
