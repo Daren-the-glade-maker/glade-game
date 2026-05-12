@@ -307,7 +307,7 @@ export default function ZeldaGame3D() {
       );
       trunk.position.set(x, 0.8, z);
       trunk.castShadow = true;
-      scene.add(trunk);
+      scene.add(trunk); overworldVisuals.push(trunk);
       const top = new THREE.Mesh(
         new THREE.ConeGeometry(1.4, 2.6, 7),
         new THREE.MeshStandardMaterial({ color: 0x2f6b28, roughness: 1 })
