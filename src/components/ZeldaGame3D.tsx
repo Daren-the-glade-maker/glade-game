@@ -249,7 +249,7 @@ export default function ZeldaGame3D() {
       p.rotation.x = -Math.PI / 2;
       p.position.set(s.x, 0.015, s.z);
       p.receiveShadow = true;
-      scene.add(p);
+      scene.add(p); overworldVisuals.push(p);
     }
 
     // ---- Rolling hills (decorative bumps) ----
