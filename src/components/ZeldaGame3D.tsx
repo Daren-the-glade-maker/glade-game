@@ -282,7 +282,7 @@ export default function ZeldaGame3D() {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.18, 0.7), bridgeWoodMat);
       plank.position.set(0, 0.18, 9 - i * 0.9);
       plank.castShadow = true; plank.receiveShadow = true;
-      scene.add(plank);
+      scene.add(plank); overworldVisuals.push(plank);
     }
     // bridge rails
     for (const sx of [-1.5, 1.5]) {
