@@ -195,6 +195,9 @@ export default function ZeldaGame3D() {
     sun.shadow.camera.far = 80;
     scene.add(sun);
 
+    // Overworld visuals — toggled off when hero is in another zone
+    const overworldVisuals: THREE.Object3D[] = [];
+
     // ---- Ground ----
     const WORLD = 80;
     const groundGeo = new THREE.PlaneGeometry(WORLD, WORLD, 1, 1);
