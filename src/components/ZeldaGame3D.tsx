@@ -205,7 +205,7 @@ export default function ZeldaGame3D() {
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    scene.add(ground);
+    scene.add(ground); overworldVisuals.push(ground);
 
     // checker overlay (subtle)
     const tileSize = 4;
