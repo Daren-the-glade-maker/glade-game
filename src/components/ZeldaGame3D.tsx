@@ -2115,7 +2115,21 @@ export default function ZeldaGame3D() {
       ddRing.rotation.z += dt * 0.4;
       drDisc.rotation.z -= dt * 1.5;
       drRing.rotation.z -= dt * 0.4;
+      sdDisc.rotation.z += dt * 1.5;
+      sdRing.rotation.z += dt * 0.4;
+      ssDisc.rotation.z -= dt * 1.5;
+      ssRing.rotation.z -= dt * 0.4;
+      // gentle drift on background clouds
+      for (let i = 0; i < driftClouds.length; i++) {
+        driftClouds[i].position.y += Math.sin(clock.elapsedTime * 0.3 + i) * dt * 0.15;
+      }
       st.portalCooldown = Math.max(0, st.portalCooldown - dt);
+
+      // Hide forest/overworld visuals when not in the overworld
+      const showOverworld = st.zone === "overworld";
+      for (const ov of overworldVisuals) {
+        if (ov.visible !== showOverworld) ov.visible = showOverworld;
+      }
 
       if (st.portalCooldown <= 0) {
         if (st.zone === "overworld") {
@@ -2156,6 +2170,27 @@ export default function ZeldaGame3D() {
             st.iframes = 0.8;
             setHud((h) => ({ ...h, zone: "dungeon" }));
             showToast("Returned to the Hollow Keep");
+          }
+        } else if (st.zone === "sky") {
+          const dSkyDun = Math.hypot(heroGroup.position.x - skyToDungeonPortal.position.x, heroGroup.position.z - skyToDungeonPortal.position.z);
+          if (dSkyDun < 1.6) {
+            heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
+            st.zone = "dungeon";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            st.flyY = 0;
+            setHud((h) => ({ ...h, zone: "dungeon" }));
+            showToast("Descended to the Hollow Keep");
+          }
+          const dSkyDes = Math.hypot(heroGroup.position.x - skyToDesertPortal.position.x, heroGroup.position.z - skyToDesertPortal.position.z);
+          if (dSkyDes < 1.6) {
+            heroGroup.position.set(desertOrigin.x, 0, desertOrigin.z + 10);
+            st.zone = "desert";
+            st.portalCooldown = 1.2;
+            st.iframes = 0.8;
+            st.flyY = 0;
+            setHud((h) => ({ ...h, zone: "desert" }));
+            showToast("Descended to the Sun-Scorched Wastes");
           }
         }
       }
