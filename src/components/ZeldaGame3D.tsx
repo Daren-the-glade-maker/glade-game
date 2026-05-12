@@ -314,7 +314,7 @@ export default function ZeldaGame3D() {
       );
       top.position.set(x, 2.6, z);
       top.castShadow = true;
-      scene.add(top);
+      scene.add(top); overworldVisuals.push(top);
       obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: 0.9 });
     }
 
