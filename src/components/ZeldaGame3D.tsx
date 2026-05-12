@@ -262,7 +262,7 @@ export default function ZeldaGame3D() {
       dome.position.set(x, 0, z);
       dome.receiveShadow = true;
       dome.castShadow = true;
-      scene.add(dome);
+      scene.add(dome); overworldVisuals.push(dome);
     }
     addHill(-22, 18, 6, 2.2);
     addHill(24, 22, 5, 1.8);
