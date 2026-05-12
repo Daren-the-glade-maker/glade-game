@@ -1077,7 +1077,7 @@ export default function ZeldaGame3D() {
       return g;
     }
 
-    function spawnMonster(type: MonsterType, x: number, z: number) {
+    function spawnMonster(type: MonsterType, x: number, z: number, zone?: "overworld" | "dungeon" | "desert" | "sky") {
       const def = MONSTERS[type];
       let group: THREE.Group;
       switch (type) {
@@ -1090,6 +1090,14 @@ export default function ZeldaGame3D() {
       }
       group.position.set(x, type === "bat" ? 1.6 : 0, z);
       scene.add(group);
+      // Derive zone from spawn coords if not provided
+      let z0: "overworld" | "dungeon" | "desert" | "sky" = zone ?? "overworld";
+      if (!zone) {
+        if (x < -150) z0 = "sky";
+        else if (x > 150) z0 = "desert";
+        else if (z < -100) z0 = "dungeon";
+        else z0 = "overworld";
+      }
       monsters.push({
         def,
         group,
@@ -1098,6 +1106,7 @@ export default function ZeldaGame3D() {
         hitFlash: 0,
         attackCd: 0,
         bobPhase: Math.random() * Math.PI * 2,
+        zone: z0,
       });
     }
 
