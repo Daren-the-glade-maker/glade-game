@@ -2097,6 +2097,12 @@ export default function ZeldaGame3D() {
 
       for (const m of monsters) {
         if (!m.alive) continue;
+        // Zone gate — monsters in other zones are inert and hidden
+        if (m.zone !== st.zone) {
+          m.group.visible = false;
+          continue;
+        }
+        m.group.visible = true;
         const dx = heroGroup.position.x - m.group.position.x;
         const dz = heroGroup.position.z - m.group.position.z;
         const dist = Math.hypot(dx, dz);
