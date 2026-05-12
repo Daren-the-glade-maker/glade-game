@@ -54,6 +54,8 @@ interface Monster {
   attackCd: number;
   // For bats: bobbing
   bobPhase: number;
+  // Which zone the monster lives in — damage is gated to matching zone
+  zone: "overworld" | "dungeon" | "desert" | "sky";
   // For mages: projectile cooldown handled via attackCd
 }
 
