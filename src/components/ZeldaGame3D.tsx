@@ -289,7 +289,7 @@ export default function ZeldaGame3D() {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 4.5), bridgeWoodMat);
       rail.position.set(sx, 0.5, 7);
       rail.castShadow = true;
-      scene.add(rail);
+      scene.add(rail); overworldVisuals.push(rail);
     }
     // creek blocks crossing OUTSIDE the bridge area
     obstacles.push({ pos: new THREE.Vector3(-12, 0, 7), radius: 3 });
