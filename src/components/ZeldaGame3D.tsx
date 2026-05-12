@@ -234,7 +234,7 @@ export default function ZeldaGame3D() {
     const lake = new THREE.Mesh(lakeGeo, lakeMat);
     lake.rotation.x = -Math.PI / 2;
     lake.position.set(0, 0.02, -25);
-    scene.add(lake);
+    scene.add(lake); overworldVisuals.push(lake);
 
     // ---- Sand path: spawn (z=25) up to portal (z=-10) ----
     const pathMat = new THREE.MeshStandardMaterial({ color: 0xd9c48a, roughness: 1 });
