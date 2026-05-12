@@ -1926,8 +1926,12 @@ export default function ZeldaGame3D() {
           seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
         });
         const flapBoost = st.flapImpulse > 0 ? 1.1 * (st.flapImpulse / 0.45) : 0;
-        wingL.rotation.z = Math.sin(t * 2.5) * 0.15 + flapBoost;
-        wingR.rotation.z = -Math.sin(t * 2.5) * 0.15 - flapBoost;
+        // While airborne (sky zone or any flyY lift), wings beat continuously and visibly
+        const airborne = st.zone === "sky" || st.flyY > 0.05;
+        const flapSpeed = airborne ? 7.5 : 2.5;
+        const flapAmp = airborne ? 0.9 : 0.15;
+        wingL.rotation.z = Math.sin(t * flapSpeed) * flapAmp + flapBoost;
+        wingR.rotation.z = -Math.sin(t * flapSpeed) * flapAmp - flapBoost;
         dHead.rotation.x = Math.sin(t * 1.5) * 0.05;
       }
 
