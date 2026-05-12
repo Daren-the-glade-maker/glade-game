@@ -326,7 +326,7 @@ export default function ZeldaGame3D() {
       rock.position.set(x, 0.5 * s, z);
       rock.castShadow = true;
       rock.receiveShadow = true;
-      scene.add(rock);
+      scene.add(rock); overworldVisuals.push(rock);
       obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: 0.9 * s });
     }
 
