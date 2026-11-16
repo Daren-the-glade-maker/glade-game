@@ -1,3 +1,9 @@
-<h1 align="center">Glade</h1>
+# <div align="center">Glade</div>
 
-#### You can play glade [here](https://glade-game.lovable.app/) 
+__You can play glade [here](https://glade-game.lovable.app/).__
+
+Glade is a legend of zelda-inspired lovable project using original assets.
+
+hope you like it!
+
+

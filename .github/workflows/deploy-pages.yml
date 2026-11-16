@@ -1,0 +1,746 @@
+# =============================================================================
+#  Build the Lovable / TanStack Start project as a static site (/build/), deploy
+#  it to GitHub Pages **and** commit that same build output to /build/ in the
+#  repository — everything lives in this one workflow file.
+#
+#  What it does, in order
+#  ---------------------------------------------------------------------------
+#   1. Resolves the **Root Directory** (workflow input) — the folder that holds
+#      the Lovable project (package.json). For this repository that is `.`.
+#   2. Rewrites the project's configuration files *on the runner only* so they
+#      match that Root Directory and a GitHub Pages deployment:
+#        • vite.config.* (or a generated vite.config.pages.ts as a fallback)
+#            - vite.base            -> the Pages base path (/<repo>/ …)
+#            - router.basepath      -> same path, for TanStack Router
+#            - client build outDir  -> build/            (the static site)
+#            - server build outDir  -> dist/server       (not published)
+#            - prerender enabled    -> real index.html instead of an SPA shell
+#        • tsconfig.json (only if the Root Directory has none yet)
+#      Nothing is committed: the repository files on your machine stay as they
+#      are, the changes only exist inside the CI workspace.
+#   3. Installs dependencies, builds a static index.html + JS + CSS into
+#      <Root Directory>/build/, adds .nojekyll and a 404.html fallback.
+#   4. Uploads build/ as a Pages artifact (and as a downloadable build artifact)
+#      and deploys it to GitHub Pages.
+#   5. Downloads that `build` artifact again in a second job and commits its
+#      contents to <Root Directory>/build/ in the repository as
+#        "chore: publish build output to build/"
+#      on the branch the workflow ran on — so the built site also lives in the
+#      repository itself, browsable/downloadable without building anything.
+#
+#  One-time repository setup
+#  ---------------------------------------------------------------------------
+#   a) Settings -> Pages -> Build and deployment -> Source = "GitHub Actions".
+#      (Nothing to specify for a "Root Directory"/publish directory there — the
+#      workflow deploys the build/ folder itself.)
+#   b) Settings -> Actions -> General -> Workflow permissions =
+#      "Read and write permissions". Step 5 pushes with the workflow's
+#      GITHUB_TOKEN, which is read-only by default in some organisations.
+#
+#  How the publishing step (5) behaves
+#  ---------------------------------------------------------------------------
+#   • It only ever touches <Root Directory>/build/ (plus, on the very first run,
+#     a short exception block in .gitignore *if* that file ignores build/). The
+#     `paths-ignore` filter on `on: push` stops the resulting commit from
+#     starting another run, which is what keeps publishing from looping. The
+#     flip side: hand-editing the published folder does not trigger a run.
+#   • Build byte-identical to what is already committed -> nothing is committed.
+#     The folder is mirrored (files a previous build left behind are removed), so
+#     re-runs are free and old hashed assets never pile up.
+#   • A branch protection rule that blocks direct pushes (or requires pull
+#     requests) makes step 5 fail with a message saying so; the GitHub Pages
+#     deployment is not affected by it.
+#   • The committed copy is exactly the deployed site, i.e. built with the GitHub
+#     Pages base path (/glade-game/assets/…), because that is the build that
+#     steps 3-4 produce.
+#   • Manual runs can opt out: untick "Publish the build output" in the
+#     "Run workflow" dialog to build + deploy without committing anything.
+# =============================================================================
+
+name: Build static site, publish build/ & deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    # The publishing job pushes <Root Directory>/build/ back to the branch. This
+    # filter is what stops that commit from starting another run (the loop).
+    paths-ignore:
+      - "build/**"
+      - "**/build/**"
+  workflow_dispatch:
+    inputs:
+      publish_build:
+        description: >-
+          Publish the build output to the repository — commits the contents of the
+          build artifact to <Root Directory>/build/ on the branch that triggered
+          this run. Set to false to only build and deploy to GitHub Pages.
+        required: false
+        type: boolean
+        default: true
+      root_directory:
+        description: >-
+          Root Directory — path (from the repository root) of the Lovable project to
+          build. It must be the folder that contains package.json. Use "." when the
+          project lives at the repository root (the case for this repository).
+        required: false
+        type: string
+        default: "."
+      base_path:
+        description: >-
+          Optional base path override for the deployed site, e.g. /glade-game/.
+          Leave empty to auto-detect it from the repository name.
+        required: false
+        type: string
+        default: ""
+
+# Least privilege: jobs only read the repository by default. The Pages
+# permissions are granted inside the `deploy` job, the push permission inside the
+# `publish` job.
+permissions:
+  contents: read
+
+# Never let two Pages deployments run at the same time
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    outputs:
+      root_dir: ${{ steps.resolve.outputs.root_dir }}
+      base_path: ${{ steps.resolve.outputs.base_path }}
+      site_out_dir: ${{ steps.resolve.outputs.site_out_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # --------------------------------------------------------------------- #
+      # 1. Root Directory + base path                                         #
+      # --------------------------------------------------------------------- #
+      - name: Resolve Root Directory and Pages settings
+        id: resolve
+        shell: bash
+        env:
+          INPUT_ROOT_DIRECTORY: ${{ inputs.root_directory }}
+          REPOSITORY_VARIABLE_ROOT_DIRECTORY: ${{ vars.ROOT_DIRECTORY }}
+          INPUT_BASE_PATH: ${{ inputs.base_path }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          # ---- Root Directory: workflow input -> repository variable -> "." ----
+          root="${INPUT_ROOT_DIRECTORY:-}"
+          if [ -z "$root" ]; then root="${REPOSITORY_VARIABLE_ROOT_DIRECTORY:-}"; fi
+          if [ -z "$root" ]; then root="."; fi
+          # normalise: drop trailing slashes and any leading "./"
+          root="${root%/}"
+          while [ "${root#./}" != "$root" ]; do root="${root#./}"; done
+          if [ -z "$root" ]; then root="."; fi
+
+          echo "Requested Root Directory: $root"
+
+          if [ ! -d "$root" ]; then
+            echo "::error::Root Directory '$root' does not exist in $GITHUB_REPOSITORY."
+            echo "Folders at the repository root:"
+            find . -maxdepth 1 -type d -not -name '.git' -not -name '.' | sort || true
+            exit 1
+          fi
+
+          if [ ! -f "$root/package.json" ]; then
+            echo "::error::Root Directory '$root' does not contain a package.json, so it is not a Lovable project root. Point the input at the folder that holds package.json (for this repository that is '.'). Candidate package.json files found:"
+            find . -maxdepth 4 -name package.json -not -path './node_modules/*' -not -path '*/node_modules/*' | sort | head -20 || true
+            exit 1
+          fi
+
+          # ---- Base path: input -> GitHub Pages convention ----
+          base="${INPUT_BASE_PATH:-}"
+          if [ -z "$base" ]; then
+            case "$REPO_NAME" in
+              # user/org page (https://<owner>.github.io) -> served from the domain root
+              *.github.io) base="/" ;;
+              # project page (https://<owner>.github.io/<repo>) -> served from /<repo>/
+              *) base="/${REPO_NAME}/" ;;
+            esac
+          fi
+          case "$base" in /*) ;; *) base="/$base" ;; esac
+          case "$base" in */) ;; *) base="$base/" ;; esac
+
+          {
+            echo "ROOT_DIR=$root"
+            echo "BASE_PATH=$base"
+            echo "SITE_OUT_DIR=build"
+            echo "SSR_OUT_DIR=dist/server"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "root_dir=$root"
+            echo "base_path=$base"
+            echo "site_out_dir=build"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Build settings"
+            echo
+            echo "| Setting | Value |"
+            echo "| --- | --- |"
+            echo "| Root Directory | \`$root\` |"
+            echo "| Base path | \`$base\` |"
+            echo "| Static output folder | \`$root/build\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Restore npm cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json', '**/bun.lockb', '**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      # --------------------------------------------------------------------- #
+      # 2. Rewrite the config files so they match the Root Directory          #
+      # --------------------------------------------------------------------- #
+      - name: Configure project for the Root Directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/prepare-pages-config.mjs" <<'PAGES_CONFIG_JS'
+          /**
+           * AUTO-GENERATED by .github/workflows/deploy-pages.yml — it runs inside the CI
+           * workspace only and is never committed to the repository.
+           *
+           * It rewrites the Lovable project's configuration files so the build is
+           * rooted at $ROOT_DIR, emits a fully static site into $SITE_OUT_DIR ("build")
+           * and works when GitHub Pages serves the site from $BASE_PATH.
+           */
+          import { appendFileSync, copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+          import { join, relative } from "node:path";
+
+          const root = process.env.ROOT_DIR || ".";
+          const base = process.env.BASE_PATH || "/";
+          const routerBasepath = base.replace(/\/+$/, "") || "/";
+          const siteOutDir = process.env.SITE_OUT_DIR || "build";
+          const ssrOutDir = process.env.SSR_OUT_DIR || "dist/server";
+
+          // Options handed to @lovable.dev/vite-tanstack-config (the wrapper that
+          // already provides tanstackStart/tailwind/react/tsconfig-paths plugins).
+          const pagesOptions = {
+            vite: {
+              // Asset + link URLs must be prefixed with the path Pages serves the site on
+              base,
+              environments: {
+                // Static site output -> <Root Directory>/build/
+                client: { build: { outDir: siteOutDir, emptyOutDir: true } },
+                // SSR bundle used only to prerender the HTML -> kept out of build/
+                server: { build: { outDir: ssrOutDir, emptyOutDir: true } },
+              },
+            },
+            tanstackStart: {
+              // TanStack Router needs the same base path to match routes
+              router: { basepath: routerBasepath },
+              // Emit real HTML files (index.html) instead of shipping an SPA shell
+              prerender: {
+                enabled: true,
+                crawlLinks: true,
+                autoSubfolderIndex: true,
+                failOnError: true,
+              },
+            },
+          };
+
+          const prettyOptions = JSON.stringify(pagesOptions, null, 2);
+
+          const candidates = [
+            "vite.config.ts",
+            "vite.config.mts",
+            "vite.config.cts",
+            "vite.config.js",
+            "vite.config.mjs",
+            "vite.config.cjs",
+          ];
+          const existing = candidates.map((name) => join(root, name)).filter((path) => existsSync(path));
+
+          const report = [];
+          let configFile = "vite.config.pages.ts";
+
+          /** Returns the argument range of the last top-level `defineConfig(...)` call. */
+          function findDefineConfigCall(source) {
+            const pattern = /defineConfig\s*\(/g;
+            let match = null;
+            let last = null;
+            while ((match = pattern.exec(source)) !== null) last = match;
+            if (!last) return null;
+            const open = last.index + last[0].length - 1;
+            const close = findMatchingParen(source, open);
+            if (close === -1) return null;
+            return { argStart: open + 1, argEnd: close, arg: source.slice(open + 1, close) };
+          }
+
+          /** Bracket matcher that ignores strings, template literals and comments. */
+          function findMatchingParen(source, open) {
+            let depth = 0;
+            let quote = null;
+            let lineComment = false;
+            let blockComment = false;
+            for (let i = open; i < source.length; i += 1) {
+              const char = source[i];
+              const next = source[i + 1];
+              if (lineComment) {
+                if (char === "\n") lineComment = false;
+                continue;
+              }
+              if (blockComment) {
+                if (char === "*" && next === "/") { blockComment = false; i += 1; }
+                continue;
+              }
+              if (quote) {
+                if (char === "\\") { i += 1; continue; }
+                if (char === quote) quote = null;
+                continue;
+              }
+              if (char === "/" && next === "/") { lineComment = true; i += 1; continue; }
+              if (char === "/" && next === "*") { blockComment = true; i += 1; continue; }
+              if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
+              if (char === "(") depth += 1;
+              if (char === ")") {
+                depth -= 1;
+                if (depth === 0) return i;
+              }
+            }
+            return -1;
+          }
+
+          const MARKER = "// GitHub Pages overrides (injected by the workflow)";
+          const header = `// --- GitHub Pages static build settings injected by .github/workflows/deploy-pages.yml ---\n`;
+
+          /** Strips a previous injection (so re-runs stay idempotent) and returns the project's own options. */
+          function projectOptions(argument) {
+            if (!argument) return "";
+            const markerIndex = argument.indexOf(MARKER);
+            let user = markerIndex === -1 ? argument : argument.slice(0, markerIndex);
+            user = user.replace(/[\s,]+$/, "").trim();
+            // "{ ... " dangling leftovers from an earlier injection mean "no options of its own"
+            return user === "" || user === "{" || user === "{}" ? "" : user;
+          }
+
+          const userConfig = existing[0];
+          if (userConfig) {
+            const source = readFileSync(userConfig, "utf8");
+            const usesLovableWrapper = source.includes("@lovable.dev/vite-tanstack-config");
+            const call = findDefineConfigCall(source);
+            const arg = call ? call.arg.trim() : null;
+            const canInject = Boolean(call) && usesLovableWrapper && (arg === "" || arg.startsWith("{"));
+
+            if (canInject) {
+              // Keep every option the project already passes and win on conflicts.
+              const own = projectOptions(arg);
+              const injected = `{\n${own === "" ? "" : `  ...(${own}),\n\n`}  ${MARKER}\n  ...(${prettyOptions.replace(/\n/g, "\n  ")})\n}`;
+              const alreadyInjected = source.includes(MARKER);
+              writeFileSync(
+                userConfig,
+                `${alreadyInjected ? "" : header}${source.slice(0, call.argStart)}${injected}${source.slice(call.argEnd)}`,
+              );
+              configFile = relative(root, userConfig);
+              report.push(`*Patched* \`${configFile}\` in the CI workspace:`);
+              report.push("");
+              report.push("| Setting | Value |");
+              report.push("| --- | --- |");
+              report.push(`| \`vite.base\` | \`${base}\` |`);
+              report.push(`| \`tanstackStart.router.basepath\` | \`${routerBasepath}\` |`);
+              report.push(`| \`vite.environments.client.build.outDir\` | \`${siteOutDir}\` |`);
+              report.push(`| \`vite.environments.server.build.outDir\` | \`${ssrOutDir}\` |`);
+              report.push("| \`tanstackStart.prerender.enabled\` | `true` (static HTML) |");
+              report.push("");
+            } else {
+              report.push(
+                `*Could not patch* \`${relative(root, userConfig)}\` (it does not use the Lovable \`defineConfig\` wrapper with an options object), so a standalone config was generated instead: \`vite.config.pages.ts\`.`,
+              );
+              report.push("");
+              report.push(
+                "::warning::Custom options in the project's Vite config were NOT inherited because they could not be detected. Review the generated config if the project needs them.",
+              );
+            }
+          } else {
+            report.push(
+              `No Vite config found in \`${root}\`, so \`vite.config.pages.ts\` was generated from the Lovable defaults.`,
+            );
+            report.push("");
+          }
+
+          if (configFile === "vite.config.pages.ts") {
+            const generated = `${header}import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+
+          export default defineConfig(${prettyOptions});
+          `;
+            writeFileSync(join(root, configFile), generated);
+            report.push(`*Generated* \`${configFile}\` for the build.`);
+            report.push("");
+          }
+
+          // tsconfig.json is what resolves the "@/*" import alias for the build.
+          // Only ever create it when the Root Directory does not have one.
+          const rootTsconfig = join(root, "tsconfig.json");
+          if (!existsSync(rootTsconfig) && root !== "." && existsSync("tsconfig.json")) {
+            copyFileSync("tsconfig.json", rootTsconfig);
+            report.push(
+              `*Created* \`${relative(".", rootTsconfig)}\` (copied from the repository root) so the \`@/*\` alias keeps resolving inside the Root Directory.`,
+            );
+            report.push("");
+          }
+
+          appendFileSync(process.env.GITHUB_ENV, `PAGES_CONFIG_FILE=${configFile}\n`);
+
+          const summary = ["", "### Configuration applied", "", ...report].join("\n");
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+          process.stdout.write(`${summary}\n`);
+          PAGES_CONFIG_JS
+
+          node "$RUNNER_TEMP/prepare-pages-config.mjs"
+
+          # Show exactly what changed in the CI workspace (the repository itself is untouched).
+          if git -C "$GITHUB_WORKSPACE" rev-parse --git-dir >/dev/null 2>&1; then
+            {
+              echo
+              echo "<details><summary>Config files changed in the CI workspace (never committed)</summary>"
+              echo
+              echo '```diff'
+              git -C "$GITHUB_WORKSPACE" --no-pager diff -- "$ROOT_DIR" | head -200 || true
+              echo '```'
+              echo
+              echo '```'
+              git -C "$GITHUB_WORKSPACE" status --porcelain -- "$ROOT_DIR" | head -20 || true
+              echo '```'
+              echo
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Available to every later step through $GITHUB_ENV
+          grep '^PAGES_CONFIG_FILE=' "$GITHUB_ENV" | tail -n 1
+
+      # --------------------------------------------------------------------- #
+      # 3. Install + build the static site into <Root Directory>/build/       #
+      # --------------------------------------------------------------------- #
+      - name: Install dependencies
+        shell: bash
+        working-directory: ${{ env.ROOT_DIR }}
+        run: |
+          set -euo pipefail
+          # --legacy-peer-deps is required for this project: Lovable's floating
+          # semver ranges (e.g. "@tanstack/react-start": "^1.167.14") now resolve
+          # to releases whose peer range demands vite >= 8, while the project
+          # itself pins vite 7 — npm's strict peer resolution aborts with
+          # ERESOLVE. Legacy mode installs the versions the lockfile pins
+          # (TanStack Start 1.167.x + vite 7), which is the combination the
+          # project was generated and tested with.
+          if [ -f package-lock.json ]; then
+            # Preferred: reproducible install. Falls back when the lockfile is stale
+            # (which is the case in this repository — it predates recent dependencies).
+            if npm ci --legacy-peer-deps --no-audit --no-fund; then
+              exit 0
+            fi
+            echo "::warning::'npm ci' failed (package-lock.json is out of sync with package.json) — falling back to 'npm install --legacy-peer-deps' for this build. Run 'npm install --legacy-peer-deps' locally and commit the updated lockfile to make builds reproducible."
+          fi
+          npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build static site
+        shell: bash
+        working-directory: ${{ env.ROOT_DIR }}
+        run: |
+          set -euo pipefail
+
+          has_build_script="$(node -p "!!(JSON.parse(require('node:fs').readFileSync('package.json','utf8')).scripts||{}).build")"
+          if [ "$has_build_script" = "true" ]; then
+            # The generated/patch config is passed on top of the project's own build script
+            npm run build -- --config "$PAGES_CONFIG_FILE"
+          else
+            echo "::notice::No 'build' script in package.json — running Vite directly."
+            npx --no-install vite build --config "$PAGES_CONFIG_FILE"
+          fi
+
+          echo "Contents of $SITE_OUT_DIR:"
+          find "$SITE_OUT_DIR" -type f | sort
+
+      - name: Verify and finalise the static output
+        shell: bash
+        working-directory: ${{ env.ROOT_DIR }}
+        run: |
+          set -euo pipefail
+          cd "$SITE_OUT_DIR"
+
+          if [ ! -f index.html ]; then
+            echo "::error::No index.html was produced in $SITE_OUT_DIR/. The build did not prerender the app into static HTML."
+            exit 1
+          fi
+
+          # GitHub Pages must serve the folder as-is: no Jekyll processing …
+          touch .nojekyll
+          # … and a fallback document for deep links (single-page app routing).
+          if [ ! -f 404.html ]; then cp index.html 404.html; fi
+
+          # The prerendered HTML must point at BASE_PATH, otherwise pages render blank.
+          # (-a: TanStack Start emits raw NUL bytes inside the serialized router state.)
+          if grep -aqE '(src|href)="/assets/' index.html; then
+            echo "::warning::index.html references assets from /assets/ instead of ${BASE_PATH}assets/ — if the deployed site renders blank, re-run with the base_path input set to the real Pages path."
+          fi
+
+          echo "Static site ready:"
+          find . -type f | sort | sed 's/^/  /'
+          echo "Total size:"
+          du -sh . | sed 's/^/  /'
+
+          {
+            echo
+            echo "### Static output: \`$ROOT_DIR/$SITE_OUT_DIR\`"
+            echo
+            echo '```'
+            find . -type f | sort
+            du -sh .
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build/ as a downloadable artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: ${{ env.ROOT_DIR }}/${{ env.SITE_OUT_DIR }}
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Upload the artifact that GitHub Pages will publish
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ env.ROOT_DIR }}/${{ env.SITE_OUT_DIR }}
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # GITHUB_TOKEN permissions required by the Pages deployment
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v6
+
+      - name: Cross-check the configured base path against GitHub Pages
+        shell: bash
+        env:
+          BUILT_BASE_PATH: ${{ needs.build.outputs.base_path }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          set -euo pipefail
+          built="${BUILT_BASE_PATH%/}"
+          actual="${PAGES_BASE_PATH%/}"
+          echo "Built with base path '${BUILT_BASE_PATH}', GitHub Pages serves this site at '${PAGES_BASE_PATH:-/}'."
+          if [ "$built" != "$actual" ]; then
+            echo "::warning::Mismatch — the site was built for '${BUILT_BASE_PATH}' but Pages serves it at '${PAGES_BASE_PATH:-/}'. Re-run the workflow (Actions -> this workflow -> Run workflow) and set 'base_path' to '${PAGES_BASE_PATH:-/}', otherwise the assets will 404."
+          fi
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  # ------------------------------------------------------------------------- #
+  # 5. Publish the build output to the repository                             #
+  # ------------------------------------------------------------------------- #
+  publish:
+    name: Publish build/ to the repository
+    needs: build
+    runs-on: ubuntu-latest
+    # Manual runs can skip this job by unticking "Publish the build output";
+    # pushes always publish. Job-level permissions replace the workflow-level
+    # ones: pushing the build output needs `contents: write` (`contents: read`
+    # from the top of the file would not be enough).
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.publish_build) }}
+    permissions:
+      contents: write
+    # Serialise publishing per branch so two runs cannot race each other.
+    concurrency:
+      group: publish-build-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Remove the previously published copy of the folder
+        shell: bash
+        env:
+          SITE_DIR: ${{ needs.build.outputs.root_dir }}/${{ needs.build.outputs.site_out_dir }}
+        run: |
+          set -euo pipefail
+
+          # The checkout brings back the build/ folder that an earlier run
+          # published. Downloading the artifact only overwrites files, it does
+          # not delete files that disappeared from the build, so the folder is
+          # emptied first - it then ends up containing exactly this build.
+          case "${SITE_DIR:-}" in
+            "" | /* | *..*)
+              echo "::error::Refusing to remove the unexpected path '${SITE_DIR:-<empty>}'."
+              exit 1
+              ;;
+          esac
+          rm -rf -- "$SITE_DIR"
+          mkdir -p -- "$SITE_DIR"
+
+      - name: Download the build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: build
+          path: ${{ needs.build.outputs.root_dir }}/${{ needs.build.outputs.site_out_dir }}
+
+      - name: Commit the build output to the repository
+        shell: bash
+        env:
+          SITE_DIR: ${{ needs.build.outputs.root_dir }}/${{ needs.build.outputs.site_out_dir }}
+        run: |
+          set -euo pipefail
+
+          site_dir="${SITE_DIR:-build}"
+          # normalise "app/build/" / "./build" / "." -> "app/build" / "build" / "."
+          while [ "${site_dir#./}" != "$site_dir" ]; do site_dir="${site_dir#./}"; done
+          site_dir="${site_dir%/}"
+          remote="origin"
+          max_attempts=3
+
+          # --------------------------------------------------------------------------
+          # Target branch: the branch the workflow ran on, recreated when the runner
+          # checked out a detached HEAD (workflow_dispatch can do that).
+          # --------------------------------------------------------------------------
+          branch="$(git symbolic-ref --short -q HEAD || true)"
+          if [ -z "$branch" ]; then
+            branch="${GITHUB_REF_NAME:?GITHUB_REF_NAME must be set to publish from a detached HEAD}"
+            echo "Detached HEAD (event '${GITHUB_EVENT_NAME:-?}') - recreating branch '$branch' to publish into."
+            git fetch --no-tags "$remote" "+refs/heads/${branch}:refs/remotes/${remote}/${branch}"
+            git checkout -B "$branch" "${remote}/${branch}"
+          fi
+          echo "Publishing the contents of '$site_dir/' to '$remote/$branch'."
+
+          if [ ! -d "$site_dir" ]; then
+            echo "::error::'$site_dir' does not exist - the build artifact was not downloaded."
+            exit 1
+          fi
+
+          # --------------------------------------------------------------------------
+          # The published folder must not be hidden by .gitignore, otherwise a fresh
+          # clone looks like the build output is missing.
+          # --------------------------------------------------------------------------
+          if git check-ignore -q -- "$site_dir"; then
+            echo "::notice::'$site_dir' is matched by .gitignore - adding an exception for it."
+            {
+              echo ""
+              echo "# Published by .github/workflows/deploy-pages.yml - the static build output is committed"
+              echo "!${site_dir}/"
+              echo "!${site_dir}/**"
+            } >> .gitignore
+          fi
+
+          # --------------------------------------------------------------------------
+          # GitHub rejects individual files of 100 MB or more, and warns above 50 MB.
+          # --------------------------------------------------------------------------
+          too_big="$(find "$site_dir" -type f -size +99M -print -quit)"
+          if [ -n "$too_big" ]; then
+            echo "::error::'$too_big' is larger than GitHub's 100 MB file limit - the build output cannot be published to the repository."
+            exit 1
+          fi
+          oversized="$(find "$site_dir" -type f -size +49M | head -5)"
+          if [ -n "$oversized" ]; then
+            echo "::warning::These files are larger than 50 MB, GitHub will warn about them:"
+            printf '%s\n' "$oversized" | sed 's/^/  /'
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # --------------------------------------------------------------------------
+          # Commit the artifact and push it. A long build can race with another push to
+          # the same branch, so on a rejected push the commit is re-created on top of
+          # the new tip - the folder is always staged from scratch, which means the
+          # freshly built files simply win instead of producing a merge conflict.
+          # --------------------------------------------------------------------------
+          pushed=""
+          committed="no"
+
+          for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+            # Mirror the artifact: drop the tracked copy first, then stage what is on
+            # disk, so files a previous build left behind (old hashed assets) go away.
+            git rm -r -q --cached --ignore-unmatch -- "$site_dir"
+            git add -A -- "$site_dir"
+            if [ -f .gitignore ]; then
+              git add -A -- .gitignore
+            fi
+
+            still_ignored="$(git ls-files -o -i --exclude-standard -- "$site_dir" || true)"
+            if [ -n "$still_ignored" ]; then
+              echo "::warning::Some files in '$site_dir/' are still excluded by .gitignore (e.g. by a parent folder rule) - publishing them anyway:"
+              printf '%s\n' "$still_ignored" | head -20 | sed 's/^/  /'
+              git add -f -A -- "$site_dir"
+            fi
+
+            if git diff --cached --quiet; then
+              break
+            fi
+
+            git commit -q \
+              -m "chore: publish build output to ${site_dir}/" \
+              -m "Built and uploaded automatically from the 'Build static site' artifact by .github/workflows/deploy-pages.yml. Run: ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-owner/repo}/actions/runs/${GITHUB_RUN_ID:-0}"
+            committed="yes"
+
+            if git push "$remote" "HEAD:refs/heads/${branch}"; then
+              pushed="yes"
+              break
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              break
+            fi
+
+            echo "::warning::The push to '$branch' was rejected, so something else landed there while this build was running. Re-applying the build output on top of that commit (attempt $((attempt + 1))/$max_attempts)."
+            if ! git fetch --no-tags "$remote" "+refs/heads/${branch}:refs/remotes/${remote}/${branch}"; then
+              echo "::warning::Could not fetch '$branch' from '$remote'."
+              break
+            fi
+            # --mixed keeps the freshly downloaded build files in the working tree.
+            git reset -q --mixed "${remote}/${branch}"
+          done
+
+          if [ -z "$pushed" ]; then
+            if [ "$committed" = "no" ]; then
+              echo "::notice::The published copy of '$site_dir/' already matches this build - nothing to commit."
+            else
+              echo "::error::Could not push the '$site_dir/' build output to '$branch'. Check that (1) Settings -> Actions -> General -> Workflow permissions is set to 'Read and write permissions', (2) no branch protection rule on '$branch' blocks pushes from github-actions[bot], and (3) repository/org policy allows the GITHUB_TOKEN to push."
+              exit 1
+            fi
+          else
+            echo "Published $(git show --pretty='' --name-only HEAD | grep -c . || true) file(s) to '$branch' as $(git rev-parse --short HEAD)."
+          fi
+
+          summary="$(
+            printf '%s\n' \
+              "" \
+              "### Published to the repository" \
+              "" \
+              "| | |" \
+              "| --- | --- |" \
+              "| Branch | \`${branch}\` |" \
+              "| Folder | [\`${site_dir}/\`](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-owner/repo}/tree/${branch}/${site_dir}) |" \
+              "| Commit | [\`$(git rev-parse --short HEAD)\`](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-owner/repo}/commit/$(git rev-parse HEAD)) |" \
+              "| New commit | ${committed} |" \
+              "| Files in folder | $(find "$site_dir" -type f | wc -l | tr -d ' ') ($(du -sh "$site_dir" | cut -f1)) |"
+          )"
+          printf '%s\n' "$summary"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
