@@ -6,4 +6,5 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-export default defineConfig();
+// Preview hosts are provided dynamically by the development sandbox.
+export default defineConfig({ vite: { server: { allowedHosts: [".e2b.app"] } } });
