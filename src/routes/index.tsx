@@ -26,7 +26,7 @@ function Index() {
       </header>
       <ZeldaGame3D />
       <footer className="mt-8 font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground">
-        Six monsters · One sword · Five tunics · Find the Guardian
+        Six monsters · One sword · Six tunics · Find the Guardian
       </footer>
     </main>
   );

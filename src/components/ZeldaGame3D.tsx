@@ -1,49 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
+import GameHud from "./GameHud";
+import {
+  TUNICS,
+  MONSTERS,
+  SWORD_UPGRADE_COST,
+  SWORD_MAX_LEVEL,
+  WORLD,
+  calcSwordDamage,
+  calcFireBreathDamage,
+  calcContactDamage,
+  swordReach,
+  swordHitRadius,
+  swordKnockback,
+  zoneFromPosition,
+  rng,
+  type TunicId,
+  type MonsterType,
+  type Zone,
+  type TunicDef,
+  type MonsterDef,
+} from "@/game/logic";
 
-// ---------- Types ----------
-type TunicId = "green" | "red" | "blue" | "white" | "shadow" | "dragon";
-interface TunicDef {
-  id: TunicId;
-  name: string;
-  body: number;
-  accent: number;
-  trim: number;
-  perk: string;
-  speed: number;
-  damageMul: number;
-  damageTaken: number;
-}
-
-const TUNICS: Record<TunicId, TunicDef> = {
-  green:  { id: "green",  name: "Forest Tunic", body: 0x6fbf73, accent: 0xc0392b, trim: 0x2f6b28, perk: "Balanced",            speed: 6,  damageMul: 1,   damageTaken: 1 },
-  red:    { id: "red",    name: "Ember Tunic",  body: 0xd45a3a, accent: 0xf3c969, trim: 0x6e1f12, perk: "+50% sword damage",   speed: 6,  damageMul: 1.5, damageTaken: 1 },
-  blue:   { id: "blue",   name: "Tide Tunic",   body: 0x4a8fb8, accent: 0xb8d8e8, trim: 0x1f3a52, perk: "Halves damage taken", speed: 6,  damageMul: 1,   damageTaken: 0.5 },
-  white:  { id: "white",  name: "Wind Cloak",   body: 0xeae6dc, accent: 0xa9aab2, trim: 0x6c6e76, perk: "Faster on foot",      speed: 9,  damageMul: 1,   damageTaken: 1 },
-  shadow: { id: "shadow", name: "Shadow Veil",  body: 0x2a2336, accent: 0x8a4ec2, trim: 0x14101c, perk: "Power + speed",       speed: 7.5,damageMul: 1.5, damageTaken: 1 },
-  dragon: { id: "dragon", name: "Dragon Scale",  body: 0x2a6f3a, accent: 0xffb01a, trim: 0x6b1a0a, perk: "DRAGON FORM — bipedal beast", speed: 8, damageMul: 2.0, damageTaken: 0.5 },
-};
-
-type MonsterType = "slime" | "bat" | "skeleton" | "knight" | "mage" | "boss";
-interface MonsterDef {
-  type: MonsterType;
-  name: string;
-  hp: number;
-  speed: number;
-  damage: number;        // half-hearts
-  contactRange: number;  // attack distance
-  color: number;
-  rupees: number;
-}
-
-const MONSTERS: Record<MonsterType, MonsterDef> = {
-  slime:    { type: "slime",    name: "Bog Slime",     hp: 2, speed: 1.6, damage: 1, contactRange: 1.4, color: 0x6fcf73, rupees: 1 },
-  bat:      { type: "bat",      name: "Cave Bat",      hp: 2, speed: 3.2, damage: 1, contactRange: 1.4, color: 0x9b6dff, rupees: 2 },
-  skeleton: { type: "skeleton", name: "Bone Sentry",   hp: 3, speed: 2.2, damage: 2, contactRange: 1.6, color: 0xeae6dc, rupees: 3 },
-  knight:   { type: "knight",   name: "Iron Knight",   hp: 5, speed: 1.8, damage: 2, contactRange: 1.8, color: 0x6b6b78, rupees: 5 },
-  mage:     { type: "mage",     name: "Hollow Mage",   hp: 3, speed: 1.4, damage: 2, contactRange: 8.0, color: 0x4a8fb8, rupees: 5 },
-  boss:     { type: "boss",     name: "Lake Guardian", hp: 14,speed: 2.0, damage: 3, contactRange: 2.6, color: 0xc0392b, rupees: 25 },
-};
+// Re-export for backwards compat / tests
+export { TUNICS, MONSTERS };
+export type { TunicId, MonsterType, Zone, TunicDef, MonsterDef };
 
 interface Monster {
   def: MonsterDef;
@@ -55,7 +36,12 @@ interface Monster {
   // For bats: bobbing
   bobPhase: number;
   // Which zone the monster lives in — damage is gated to matching zone
-  zone: "overworld" | "dungeon" | "desert" | "sky";
+  zone: Zone;
+  // Vertical base for flying monsters (sky bats). Typed field — no casts.
+  baseY: number;
+  // Cached wing refs for bats (avoids getObjectByName per frame)
+  wingL?: THREE.Mesh;
+  wingR?: THREE.Mesh;
   // For mages: projectile cooldown handled via attackCd
 }
 
@@ -65,17 +51,20 @@ interface Projectile {
   life: number;
   damage: number;
   fromEnemy: boolean;
+  zone: Zone;
 }
 
 interface Pickup {
   mesh: THREE.Group;
   tunic: TunicId;
   bobPhase: number;
+  zone: Zone;
 }
 
 interface HeartDrop {
   mesh: THREE.Mesh;
   bobPhase: number;
+  zone: Zone;
 }
 
 interface Obstacle {
@@ -114,18 +103,24 @@ export default function ZeldaGame3D() {
   });
 
   const [hud, setHud] = useState({
-    hp: 6, maxHp: 6, rupees: 0,
+    hp: 6,
+    maxHp: 6,
+    rupees: 0,
     tunic: "green" as TunicId,
     inventory: ["green"] as TunicId[],
     toast: "",
     won: false,
     near: "",
-    zone: "overworld" as "overworld" | "dungeon" | "desert" | "sky",
+    zone: "overworld" as Zone,
     swordLevel: 1,
     swordShards: 0,
     weapon: "sword" as "sword" | "bow",
     arrows: 20,
   });
+  const [webglError, setWebglError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [quality, setQuality] = useState<"high" | "low">("high");
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
 
   const equipFnRef = useRef<(id: TunicId) => void>(() => {});
   const heroBodyMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
@@ -133,46 +128,83 @@ export default function ZeldaGame3D() {
   const heroTrimMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const dragonFormRef = useRef<(on: boolean) => void>(() => {});
   const toastTimerRef = useRef<number | null>(null);
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
+
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setPixelRatio(quality === "low" ? 1 : Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = quality === "high";
+    renderer.shadowMap.needsUpdate = true;
+  }, [quality]);
 
   const showToast = useCallback((msg: string) => {
     setHud((h) => ({ ...h, toast: msg }));
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(
-      () => setHud((h) => ({ ...h, toast: "" })),
-      2400
-    );
+    toastTimerRef.current = window.setTimeout(() => setHud((h) => ({ ...h, toast: "" })), 2400);
   }, []);
 
-  const equipTunic = useCallback((id: TunicId) => {
-    const st = stateRef.current;
-    if (!st.inventory.has(id)) return;
-    st.tunic = id;
-    const t = TUNICS[id];
-    heroBodyMatRef.current?.color.setHex(t.body);
-    heroAccentMatRef.current?.color.setHex(t.accent);
-    heroTrimMatRef.current?.color.setHex(t.trim);
-    dragonFormRef.current(id === "dragon");
-    setHud((h) => ({ ...h, tunic: id }));
-    showToast(`Equipped ${t.name}`);
-  }, [showToast]);
+  // Clear toast timer on unmount (prevents setState on unmounted component)
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const equipTunic = useCallback(
+    (id: TunicId) => {
+      const st = stateRef.current;
+      if (!st.inventory.has(id)) return;
+      st.tunic = id;
+      const t = TUNICS[id];
+      heroBodyMatRef.current?.color.setHex(t.body);
+      heroAccentMatRef.current?.color.setHex(t.accent);
+      heroTrimMatRef.current?.color.setHex(t.trim);
+      dragonFormRef.current(id === "dragon");
+      setHud((h) => ({ ...h, tunic: id }));
+      showToast(`Equipped ${t.name}`);
+    },
+    [showToast],
+  );
 
   useEffect(() => {
     equipFnRef.current = equipTunic;
   }, [equipTunic]);
 
   useEffect(() => {
-    const mount = mountRef.current!;
-    const width = mount.clientWidth;
-    const height = mount.clientHeight;
+    const mount = mountRef.current;
+    if (!mount) {
+      setWebglError("Game container not found.");
+      return;
+    }
+    let width = mount.clientWidth;
+    let height = mount.clientHeight;
+    if (width === 0 || height === 0) {
+      // Container not laid out yet — fall back to a sane default; ResizeObserver will correct it.
+      width = mount.clientWidth || 960;
+      height = mount.clientHeight || 540;
+    }
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Renderer — guard WebGL availability so the page degrades gracefully
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch {
+      setWebglError(
+        "WebGL is not available in this browser, so the 3D game cannot start. Try a modern desktop or mobile browser with hardware acceleration enabled.",
+      );
+      return;
+    }
+    rendererRef.current = renderer;
+    const isLowQuality = qualityRef.current === "low";
+    renderer.setPixelRatio(isLowQuality ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !isLowQuality;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setClearColor(0x1b1f1a, 1);
     mount.appendChild(renderer.domElement);
+    setReady(true);
 
     // Scene
     const scene = new THREE.Scene();
@@ -181,6 +213,33 @@ export default function ZeldaGame3D() {
     // Camera
     const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 200);
     camera.position.set(0, 8, 10);
+
+    // --- GPU disposal helpers (prevent leaks on unmount / per-object removal) ---
+    function disposeObject(root: THREE.Object3D) {
+      // Scene nodes often share geometry/materials. Dispose each resource once.
+      const geometries = new Set<THREE.BufferGeometry>();
+      const materials = new Set<THREE.Material>();
+      const textures = new Set<THREE.Texture>();
+      root.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.geometry) geometries.add(mesh.geometry);
+        const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(material)) material.forEach((m) => materials.add(m));
+        else if (material) materials.add(material);
+      });
+      for (const geometry of geometries) geometry.dispose();
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.Texture) textures.add(value);
+        }
+        material.dispose();
+      }
+      for (const texture of textures) texture.dispose();
+    }
+    function removeAndDispose(obj: THREE.Object3D) {
+      obj.parent?.remove(obj);
+      disposeObject(obj);
+    }
 
     // Lights
     const hemi = new THREE.HemisphereLight(0xddeeff, 0x1b2a1b, 0.55);
@@ -201,13 +260,13 @@ export default function ZeldaGame3D() {
     const overworldVisuals: THREE.Object3D[] = [];
 
     // ---- Ground ----
-    const WORLD = 80;
     const groundGeo = new THREE.PlaneGeometry(WORLD, WORLD, 1, 1);
     const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a7a3a, roughness: 0.95 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    scene.add(ground); overworldVisuals.push(ground);
+    scene.add(ground);
+    overworldVisuals.push(ground);
 
     // checker overlay (subtle)
     const tileSize = 4;
@@ -218,12 +277,17 @@ export default function ZeldaGame3D() {
         if ((i + j) % 2 === 0) continue;
         const m = new THREE.Mesh(
           checkerGeo,
-          new THREE.MeshStandardMaterial({ color: 0x3f6c33, roughness: 1 })
+          new THREE.MeshStandardMaterial({ color: 0x3f6c33, roughness: 1 }),
         );
         m.rotation.x = -Math.PI / 2;
-        m.position.set(-WORLD / 2 + tileSize / 2 + i * tileSize, 0.01, -WORLD / 2 + tileSize / 2 + j * tileSize);
+        m.position.set(
+          -WORLD / 2 + tileSize / 2 + i * tileSize,
+          0.01,
+          -WORLD / 2 + tileSize / 2 + j * tileSize,
+        );
         m.receiveShadow = true;
-        scene.add(m); overworldVisuals.push(m);
+        scene.add(m);
+        overworldVisuals.push(m);
       }
     }
 
@@ -232,11 +296,16 @@ export default function ZeldaGame3D() {
 
     // ---- Lake (center pond) ----
     const lakeGeo = new THREE.CircleGeometry(7, 48);
-    const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fb0, roughness: 0.4, metalness: 0.1 });
+    const lakeMat = new THREE.MeshStandardMaterial({
+      color: 0x3a7fb0,
+      roughness: 0.4,
+      metalness: 0.1,
+    });
     const lake = new THREE.Mesh(lakeGeo, lakeMat);
     lake.rotation.x = -Math.PI / 2;
     lake.position.set(0, 0.02, -25);
-    scene.add(lake); overworldVisuals.push(lake);
+    scene.add(lake);
+    overworldVisuals.push(lake);
 
     // ---- Sand path: spawn (z=25) up to portal (z=-10) ----
     const pathMat = new THREE.MeshStandardMaterial({ color: 0xd9c48a, roughness: 1 });
@@ -251,20 +320,22 @@ export default function ZeldaGame3D() {
       p.rotation.x = -Math.PI / 2;
       p.position.set(s.x, 0.015, s.z);
       p.receiveShadow = true;
-      scene.add(p); overworldVisuals.push(p);
+      scene.add(p);
+      overworldVisuals.push(p);
     }
 
     // ---- Rolling hills (decorative bumps) ----
     function addHill(x: number, z: number, r: number, h: number) {
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(r, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-        new THREE.MeshStandardMaterial({ color: 0x5a8e44, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x5a8e44, roughness: 1 }),
       );
       dome.scale.set(1, h / r, 1);
       dome.position.set(x, 0, z);
       dome.receiveShadow = true;
       dome.castShadow = true;
-      scene.add(dome); overworldVisuals.push(dome);
+      scene.add(dome);
+      overworldVisuals.push(dome);
     }
     addHill(-22, 18, 6, 2.2);
     addHill(24, 22, 5, 1.8);
@@ -273,25 +344,29 @@ export default function ZeldaGame3D() {
     // ---- Creek + bridge (across path between z=10 and z=4) ----
     const creek = new THREE.Mesh(
       new THREE.PlaneGeometry(40, 4),
-      new THREE.MeshStandardMaterial({ color: 0x4a90c5, roughness: 0.4, metalness: 0.1 })
+      new THREE.MeshStandardMaterial({ color: 0x4a90c5, roughness: 0.4, metalness: 0.1 }),
     );
     creek.rotation.x = -Math.PI / 2;
     creek.position.set(-6, 0.03, 7);
-    scene.add(creek); overworldVisuals.push(creek);
+    scene.add(creek);
+    overworldVisuals.push(creek);
     // bridge planks
     const bridgeWoodMat = new THREE.MeshStandardMaterial({ color: 0x8a5a30, roughness: 0.9 });
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.18, 0.7), bridgeWoodMat);
       plank.position.set(0, 0.18, 9 - i * 0.9);
-      plank.castShadow = true; plank.receiveShadow = true;
-      scene.add(plank); overworldVisuals.push(plank);
+      plank.castShadow = true;
+      plank.receiveShadow = true;
+      scene.add(plank);
+      overworldVisuals.push(plank);
     }
     // bridge rails
     for (const sx of [-1.5, 1.5]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 4.5), bridgeWoodMat);
       rail.position.set(sx, 0.5, 7);
       rail.castShadow = true;
-      scene.add(rail); overworldVisuals.push(rail);
+      scene.add(rail);
+      overworldVisuals.push(rail);
     }
     // creek blocks crossing OUTSIDE the bridge area
     obstacles.push({ pos: new THREE.Vector3(-12, 0, 7), radius: 3 });
@@ -305,30 +380,33 @@ export default function ZeldaGame3D() {
     function addTree(x: number, z: number) {
       const trunk = new THREE.Mesh(
         new THREE.CylinderGeometry(0.3, 0.4, 1.6, 6),
-        new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 1 }),
       );
       trunk.position.set(x, 0.8, z);
       trunk.castShadow = true;
-      scene.add(trunk); overworldVisuals.push(trunk);
+      scene.add(trunk);
+      overworldVisuals.push(trunk);
       const top = new THREE.Mesh(
         new THREE.ConeGeometry(1.4, 2.6, 7),
-        new THREE.MeshStandardMaterial({ color: 0x2f6b28, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x2f6b28, roughness: 1 }),
       );
       top.position.set(x, 2.6, z);
       top.castShadow = true;
-      scene.add(top); overworldVisuals.push(top);
+      scene.add(top);
+      overworldVisuals.push(top);
       obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: 0.9 });
     }
 
     function addRock(x: number, z: number, s = 1) {
       const rock = new THREE.Mesh(
         new THREE.DodecahedronGeometry(0.8 * s, 0),
-        new THREE.MeshStandardMaterial({ color: 0x6b6b78, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x6b6b78, roughness: 1 }),
       );
       rock.position.set(x, 0.5 * s, z);
       rock.castShadow = true;
       rock.receiveShadow = true;
-      scene.add(rock); overworldVisuals.push(rock);
+      scene.add(rock);
+      overworldVisuals.push(rock);
       obstacles.push({ pos: new THREE.Vector3(x, 0, z), radius: 0.9 * s });
     }
 
@@ -340,21 +418,14 @@ export default function ZeldaGame3D() {
       addTree(x, z);
     }
 
-    // scattered trees (avoid lake area)
-    const rng = (seed: number) => {
-      let s = seed;
-      return () => {
-        s = (s * 9301 + 49297) % 233280;
-        return s / 233280;
-      };
-    };
+    // scattered trees (avoid lake area) — seeded RNG for reproducible layouts
     const r = rng(7);
     // helper: keep path corridor clear (path runs along x≈0 from z=25 down to z=-4, then x≈4 from z=-4 to z=-13, plus portal area)
     const onPath = (x: number, z: number) => {
       if (z >= -4 && z <= 25 && Math.abs(x) < 2.5) return true;
       if (z >= -13 && z <= -4 && Math.abs(x - 4) < 2.5) return true;
       // portal clearing
-      if (Math.hypot(x - 4, z - (-10)) < 3.5) return true;
+      if (Math.hypot(x - 4, z - -10) < 3.5) return true;
       // bridge corridor across creek
       if (z >= 5 && z <= 9 && Math.abs(x) < 2.5) return true;
       return false;
@@ -362,8 +433,8 @@ export default function ZeldaGame3D() {
     for (let i = 0; i < 50; i++) {
       const x = (r() - 0.5) * (WORLD - 8);
       const z = (r() - 0.5) * (WORLD - 8);
-      if (Math.hypot(x, z + 25) < 11) continue;       // avoid lake
-      if (Math.hypot(x, z - 25) < 6) continue;        // avoid spawn
+      if (Math.hypot(x, z + 25) < 11) continue; // avoid lake
+      if (Math.hypot(x, z - 25) < 6) continue; // avoid spawn
       if (onPath(x, z)) continue;
       addTree(x, z);
     }
@@ -408,9 +479,13 @@ export default function ZeldaGame3D() {
     const legGeo = new THREE.BoxGeometry(0.32, 0.55, 0.32);
     const legMat = new THREE.MeshStandardMaterial({ color: 0xeae0c8, roughness: 0.9 });
     const legL = new THREE.Mesh(legGeo, legMat);
-    legL.position.set(-0.2, 0.3, 0); legL.castShadow = true; heroGroup.add(legL);
+    legL.position.set(-0.2, 0.3, 0);
+    legL.castShadow = true;
+    heroGroup.add(legL);
     const legR = new THREE.Mesh(legGeo, legMat);
-    legR.position.set(0.2, 0.3, 0); legR.castShadow = true; heroGroup.add(legR);
+    legR.position.set(0.2, 0.3, 0);
+    legR.castShadow = true;
+    heroGroup.add(legR);
     // head
     const skin = new THREE.MeshStandardMaterial({ color: 0xf2c89e, roughness: 0.9 });
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.65, 0.65), skin);
@@ -425,9 +500,13 @@ export default function ZeldaGame3D() {
     // arms
     const armGeo = new THREE.BoxGeometry(0.25, 0.85, 0.3);
     const armL = new THREE.Mesh(armGeo, bodyMat);
-    armL.position.set(-0.55, 1.1, 0); armL.castShadow = true; heroGroup.add(armL);
+    armL.position.set(-0.55, 1.1, 0);
+    armL.castShadow = true;
+    heroGroup.add(armL);
     const armR = new THREE.Mesh(armGeo, bodyMat);
-    armR.position.set(0.55, 1.1, 0); armR.castShadow = true; heroGroup.add(armR);
+    armR.position.set(0.55, 1.1, 0);
+    armR.castShadow = true;
+    heroGroup.add(armR);
 
     // ---- Sheath on back (with sheathed sword visible when not attacking) ----
     const sheathGroup = new THREE.Group();
@@ -448,7 +527,13 @@ export default function ZeldaGame3D() {
     scabbard.castShadow = true;
     sheathGroup.add(scabbard);
     // metal trim bands
-    const trimBandMat = new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff0022, emissiveIntensity: 0.5, metalness: 0.7, roughness: 0.25 });
+    const trimBandMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a3a,
+      emissive: 0xff0022,
+      emissiveIntensity: 0.5,
+      metalness: 0.7,
+      roughness: 0.25,
+    });
     const bandTop = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.22), trimBandMat);
     bandTop.position.set(0, 0.85, 0);
     sheathGroup.add(bandTop);
@@ -468,21 +553,32 @@ export default function ZeldaGame3D() {
     // crossguard
     const sgGuard = new THREE.Mesh(
       new THREE.BoxGeometry(0.6, 0.1, 0.16),
-      new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xff0022, emissiveIntensity: 1.0, metalness: 0.6, roughness: 0.2 })
+      new THREE.MeshStandardMaterial({
+        color: 0xff2a3a,
+        emissive: 0xff0022,
+        emissiveIntensity: 1.0,
+        metalness: 0.6,
+        roughness: 0.2,
+      }),
     );
     sgGuard.position.y = 0.0;
     sheathedSword.add(sgGuard);
     // grip
     const sgGrip = new THREE.Mesh(
       new THREE.BoxGeometry(0.14, 0.36, 0.14),
-      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.85 })
+      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.85 }),
     );
     sgGrip.position.y = 0.22;
     sheathedSword.add(sgGrip);
     // pommel
     const sgPommel = new THREE.Mesh(
       new THREE.SphereGeometry(0.12, 12, 10),
-      new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffaa00, emissiveIntensity: 0.9, metalness: 0.4 })
+      new THREE.MeshStandardMaterial({
+        color: 0xffe14a,
+        emissive: 0xffaa00,
+        emissiveIntensity: 0.9,
+        metalness: 0.4,
+      }),
     );
     sgPommel.position.y = 0.46;
     sheathedSword.add(sgPommel);
@@ -491,11 +587,17 @@ export default function ZeldaGame3D() {
     const bowGroup = new THREE.Group();
     heroGroup.add(bowGroup);
     const bowWoodMat = new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 });
-    const bowAccentMat = new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xaa7700, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.3 });
+    const bowAccentMat = new THREE.MeshStandardMaterial({
+      color: 0xffd24a,
+      emissive: 0xaa7700,
+      emissiveIntensity: 0.4,
+      metalness: 0.7,
+      roughness: 0.3,
+    });
     // arc — torus segment
     const bowArc = new THREE.Mesh(
       new THREE.TorusGeometry(0.55, 0.05, 8, 20, Math.PI * 1.1),
-      bowWoodMat
+      bowWoodMat,
     );
     bowArc.rotation.z = Math.PI / 2 - Math.PI * 0.55;
     bowGroup.add(bowArc);
@@ -539,11 +641,35 @@ export default function ZeldaGame3D() {
     dragonGroup.visible = false;
     heroGroup.add(dragonGroup);
 
-    const scaleMat = new THREE.MeshStandardMaterial({ color: 0x2a6f3a, roughness: 0.55, metalness: 0.25 });
-    const bellyMat = new THREE.MeshStandardMaterial({ color: 0xffb01a, roughness: 0.6, metalness: 0.15, emissive: 0x331400, emissiveIntensity: 0.2 });
-    const clawMat  = new THREE.MeshStandardMaterial({ color: 0x1a0f08, roughness: 0.4, metalness: 0.6 });
-    const eyeMat   = new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xff8800, emissiveIntensity: 1.5 });
-    const wingMat  = new THREE.MeshStandardMaterial({ color: 0x6b1a0a, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x220500, emissiveIntensity: 0.25 });
+    const scaleMat = new THREE.MeshStandardMaterial({
+      color: 0x2a6f3a,
+      roughness: 0.55,
+      metalness: 0.25,
+    });
+    const bellyMat = new THREE.MeshStandardMaterial({
+      color: 0xffb01a,
+      roughness: 0.6,
+      metalness: 0.15,
+      emissive: 0x331400,
+      emissiveIntensity: 0.2,
+    });
+    const clawMat = new THREE.MeshStandardMaterial({
+      color: 0x1a0f08,
+      roughness: 0.4,
+      metalness: 0.6,
+    });
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0xffe14a,
+      emissive: 0xff8800,
+      emissiveIntensity: 1.5,
+    });
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: 0x6b1a0a,
+      roughness: 0.7,
+      side: THREE.DoubleSide,
+      emissive: 0x220500,
+      emissiveIntensity: 0.25,
+    });
 
     // ---- Torso (broad, leaning slightly forward) ----
     const dTorso = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.5, 0.85), scaleMat);
@@ -582,7 +708,10 @@ export default function ZeldaGame3D() {
     dragonGroup.add(dJaw);
     // teeth (tiny cones row)
     for (let i = -1; i <= 1; i++) {
-      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 4), new THREE.MeshStandardMaterial({ color: 0xfff5dc }));
+      const tooth = new THREE.Mesh(
+        new THREE.ConeGeometry(0.04, 0.12, 4),
+        new THREE.MeshStandardMaterial({ color: 0xfff5dc }),
+      );
       tooth.position.set(i * 0.1, 2.78, 1.18);
       tooth.rotation.x = Math.PI;
       dragonGroup.add(tooth);
@@ -625,7 +754,10 @@ export default function ZeldaGame3D() {
     dArmR.castShadow = true;
     dragonGroup.add(dArmR);
     // claws on hands
-    for (const [side, x] of [["L", -0.78], ["R", 0.78]] as const) {
+    for (const [side, x] of [
+      ["L", -0.78],
+      ["R", 0.78],
+    ] as const) {
       for (let i = 0; i < 3; i++) {
         const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 4), clawMat);
         claw.position.set(x + (i - 1) * 0.07, 1.4, 0.28);
@@ -748,39 +880,35 @@ export default function ZeldaGame3D() {
       metalness: 0.6,
       roughness: 0.15,
     });
-    const swordBlade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.22, 2.0),
-      neonMat
-    );
+    const swordBlade = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 2.0), neonMat);
     swordBlade.position.set(0, 0, 1.1);
     swordBlade.castShadow = true;
     swordPivot.add(swordBlade);
     // tip
-    const swordTip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.18, 0.45, 4),
-      neonMat
-    );
+    const swordTip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.45, 4), neonMat);
     swordTip.rotation.x = Math.PI / 2;
     swordTip.position.set(0, 0, 2.25);
     swordPivot.add(swordTip);
     // crossguard
-    const swordGuard = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.12, 0.18),
-      neonMat
-    );
+    const swordGuard = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.18), neonMat);
     swordGuard.position.set(0, 0, 0.15);
     swordPivot.add(swordGuard);
     // hilt grip
     const swordHilt = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.16, 0.32),
-      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.8 })
+      new THREE.MeshStandardMaterial({ color: 0x1a0608, roughness: 0.8 }),
     );
     swordHilt.position.set(0, 0, -0.05);
     swordPivot.add(swordHilt);
     // pommel jewel
     const swordPommel = new THREE.Mesh(
       new THREE.SphereGeometry(0.13, 12, 10),
-      new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffaa00, emissiveIntensity: 0.9, metalness: 0.4 })
+      new THREE.MeshStandardMaterial({
+        color: 0xffe14a,
+        emissive: 0xffaa00,
+        emissiveIntensity: 0.9,
+        metalness: 0.4,
+      }),
     );
     swordPommel.position.set(0, 0, -0.24);
     swordPivot.add(swordPommel);
@@ -791,12 +919,10 @@ export default function ZeldaGame3D() {
     swordPivot.visible = false;
 
     // ---- Sword upgrade tuning ----
-    // Damage / reach / glow scale with swordLevel (1..5)
-    const SWORD_UPGRADE_COST = 3; // shards per level
-    const SWORD_MAX_LEVEL = 5;
+    // Damage / reach / glow scale with swordLevel (1..5) — constants from @/game/logic
     const applySwordVisuals = () => {
       const lvl = stateRef.current.swordLevel;
-      const s = 1 + (lvl - 1) * 0.18;        // size grows
+      const s = 1 + (lvl - 1) * 0.18; // size grows
       swordBlade.scale.set(s, s, 1 + (lvl - 1) * 0.15);
       swordTip.scale.set(s, s, 1 + (lvl - 1) * 0.15);
       swordTip.position.z = 2.25 + (lvl - 1) * 0.16;
@@ -831,6 +957,14 @@ export default function ZeldaGame3D() {
       setBowPose(false);
     };
     dragonFormRef.current = setDragonForm;
+    // Sync 3D materials to the current tunic (handles equip-before-mount race)
+    {
+      const cur = TUNICS[stateRef.current.tunic];
+      bodyMat.color.setHex(cur.body);
+      accentMat.color.setHex(cur.accent);
+      trimMat.color.setHex(cur.trim);
+      setDragonForm(stateRef.current.tunic === "dragon");
+    }
 
     // hero shadow disc fallback (in case shadows perform poorly)
     // (skip — using real shadows)
@@ -844,30 +978,40 @@ export default function ZeldaGame3D() {
       g.position.set(x, 0.5, z);
       const base = new THREE.Mesh(
         new THREE.BoxGeometry(0.7, 0.6, 0.4),
-        new THREE.MeshStandardMaterial({ color: t.body, roughness: 0.6, emissive: t.body, emissiveIntensity: 0.15 })
+        new THREE.MeshStandardMaterial({
+          color: t.body,
+          roughness: 0.6,
+          emissive: t.body,
+          emissiveIntensity: 0.15,
+        }),
       );
       base.castShadow = true;
       g.add(base);
       const stripe = new THREE.Mesh(
         new THREE.BoxGeometry(0.72, 0.12, 0.42),
-        new THREE.MeshStandardMaterial({ color: t.accent })
+        new THREE.MeshStandardMaterial({ color: t.accent }),
       );
       stripe.position.y = -0.05;
       g.add(stripe);
       const cap = new THREE.Mesh(
         new THREE.ConeGeometry(0.3, 0.4, 6),
-        new THREE.MeshStandardMaterial({ color: t.trim })
+        new THREE.MeshStandardMaterial({ color: t.trim }),
       );
       cap.position.y = 0.55;
       g.add(cap);
       // glow
       const glow = new THREE.Mesh(
         new THREE.SphereGeometry(0.9, 16, 12),
-        new THREE.MeshBasicMaterial({ color: t.body, transparent: true, opacity: 0.08 })
+        new THREE.MeshBasicMaterial({ color: t.body, transparent: true, opacity: 0.08 }),
       );
       g.add(glow);
       scene.add(g);
-      pickups.push({ mesh: g, tunic: tunicId, bobPhase: Math.random() * Math.PI * 2 });
+      pickups.push({
+        mesh: g,
+        tunic: tunicId,
+        bobPhase: Math.random() * Math.PI * 2,
+        zone: zoneFromPosition(x, z),
+      });
     }
 
     // Place tunics around the world
@@ -879,15 +1023,23 @@ export default function ZeldaGame3D() {
 
     // ---- Hearts ----
     const hearts: HeartDrop[] = [];
-    function dropHeart(x: number, z: number) {
+    function dropHeart(x: number, z: number, zone?: Zone) {
       const m = new THREE.Mesh(
         new THREE.SphereGeometry(0.28, 12, 8),
-        new THREE.MeshStandardMaterial({ color: 0xe74c3c, emissive: 0xff5b4d, emissiveIntensity: 0.3 })
+        new THREE.MeshStandardMaterial({
+          color: 0xe74c3c,
+          emissive: 0xff5b4d,
+          emissiveIntensity: 0.3,
+        }),
       );
       m.position.set(x, 0.7, z);
       m.castShadow = true;
       scene.add(m);
-      hearts.push({ mesh: m, bobPhase: Math.random() * Math.PI * 2 });
+      hearts.push({
+        mesh: m,
+        bobPhase: Math.random() * Math.PI * 2,
+        zone: zone ?? zoneFromPosition(x, z),
+      });
     }
 
     // ---- Monsters ----
@@ -898,7 +1050,14 @@ export default function ZeldaGame3D() {
       const def = MONSTERS.slime;
       const body = new THREE.Mesh(
         new THREE.SphereGeometry(0.7, 16, 12),
-        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.5, transparent: true, opacity: 0.85, emissive: def.color, emissiveIntensity: 0.1 })
+        new THREE.MeshStandardMaterial({
+          color: def.color,
+          roughness: 0.5,
+          transparent: true,
+          opacity: 0.85,
+          emissive: def.color,
+          emissiveIntensity: 0.1,
+        }),
       );
       body.scale.y = 0.7;
       body.position.y = 0.5;
@@ -907,8 +1066,12 @@ export default function ZeldaGame3D() {
       // eyes
       const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
       const eyeGeo = new THREE.SphereGeometry(0.08, 8, 6);
-      const e1 = new THREE.Mesh(eyeGeo, eyeMat); e1.position.set(-0.2, 0.6, 0.55); g.add(e1);
-      const e2 = new THREE.Mesh(eyeGeo, eyeMat); e2.position.set(0.2, 0.6, 0.55); g.add(e2);
+      const e1 = new THREE.Mesh(eyeGeo, eyeMat);
+      e1.position.set(-0.2, 0.6, 0.55);
+      g.add(e1);
+      const e2 = new THREE.Mesh(eyeGeo, eyeMat);
+      e2.position.set(0.2, 0.6, 0.55);
+      g.add(e2);
       return g;
     }
 
@@ -917,11 +1080,15 @@ export default function ZeldaGame3D() {
       const def = MONSTERS.bat;
       const body = new THREE.Mesh(
         new THREE.SphereGeometry(0.35, 12, 10),
-        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.6 })
+        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.6 }),
       );
       body.castShadow = true;
       g.add(body);
-      const wingMat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.7, side: THREE.DoubleSide });
+      const wingMat = new THREE.MeshStandardMaterial({
+        color: def.color,
+        roughness: 0.7,
+        side: THREE.DoubleSide,
+      });
       const wingGeo = new THREE.PlaneGeometry(0.8, 0.4);
       const wL = new THREE.Mesh(wingGeo, wingMat);
       wL.position.set(-0.5, 0, 0);
@@ -934,7 +1101,7 @@ export default function ZeldaGame3D() {
       // eyes glow
       const glow = new THREE.Mesh(
         new THREE.SphereGeometry(0.08, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xff3344 })
+        new THREE.MeshBasicMaterial({ color: 0xff3344 }),
       );
       glow.position.set(0, 0.1, 0.3);
       g.add(glow);
@@ -946,52 +1113,101 @@ export default function ZeldaGame3D() {
       const def = MONSTERS.skeleton;
       const boneMat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.9 });
       const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.3), boneMat);
-      torso.position.y = 1.0; torso.castShadow = true; g.add(torso);
+      torso.position.y = 1.0;
+      torso.castShadow = true;
+      g.add(torso);
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), boneMat);
-      head.position.y = 1.65; head.castShadow = true; g.add(head);
+      head.position.y = 1.65;
+      head.castShadow = true;
+      g.add(head);
       // ribs accent
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.32), new THREE.MeshStandardMaterial({ color: 0x999999 }));
-      rib.position.y = 1.0; g.add(rib);
+      const rib = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.06, 0.32),
+        new THREE.MeshStandardMaterial({ color: 0x999999 }),
+      );
+      rib.position.y = 1.0;
+      g.add(rib);
       // legs
       const legGeo = new THREE.BoxGeometry(0.18, 0.7, 0.2);
-      const legL = new THREE.Mesh(legGeo, boneMat); legL.position.set(-0.15, 0.35, 0); legL.castShadow = true; g.add(legL);
-      const legR = new THREE.Mesh(legGeo, boneMat); legR.position.set(0.15, 0.35, 0); legR.castShadow = true; g.add(legR);
+      const legL = new THREE.Mesh(legGeo, boneMat);
+      legL.position.set(-0.15, 0.35, 0);
+      legL.castShadow = true;
+      g.add(legL);
+      const legR = new THREE.Mesh(legGeo, boneMat);
+      legR.position.set(0.15, 0.35, 0);
+      legR.castShadow = true;
+      g.add(legR);
       // sword (right hand)
-      const sword = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.7), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.4 }));
+      const sword = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.08, 0.7),
+        new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.4 }),
+      );
       sword.position.set(0.45, 1.0, 0.3);
       g.add(sword);
       // eye sockets
       const sock = new THREE.MeshBasicMaterial({ color: 0x000000 });
       const sg = new THREE.PlaneGeometry(0.1, 0.1);
-      const s1 = new THREE.Mesh(sg, sock); s1.position.set(-0.12, 1.7, 0.26); g.add(s1);
-      const s2 = new THREE.Mesh(sg, sock); s2.position.set(0.12, 1.7, 0.26); g.add(s2);
+      const s1 = new THREE.Mesh(sg, sock);
+      s1.position.set(-0.12, 1.7, 0.26);
+      g.add(s1);
+      const s2 = new THREE.Mesh(sg, sock);
+      s2.position.set(0.12, 1.7, 0.26);
+      g.add(s2);
       return g;
     }
 
     function makeKnight(): THREE.Group {
       const g = new THREE.Group();
       const def = MONSTERS.knight;
-      const armorMat = new THREE.MeshStandardMaterial({ color: def.color, metalness: 0.5, roughness: 0.4 });
+      const armorMat = new THREE.MeshStandardMaterial({
+        color: def.color,
+        metalness: 0.5,
+        roughness: 0.4,
+      });
       const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.6), armorMat);
-      torso.position.y = 1.1; torso.castShadow = true; g.add(torso);
+      torso.position.y = 1.1;
+      torso.castShadow = true;
+      g.add(torso);
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), armorMat);
-      head.position.y = 1.95; head.castShadow = true; g.add(head);
+      head.position.y = 1.95;
+      head.castShadow = true;
+      g.add(head);
       // visor slit
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: 0xff3322 }));
-      visor.position.set(0, 1.95, 0.32); g.add(visor);
+      const visor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.62, 0.08, 0.05),
+        new THREE.MeshBasicMaterial({ color: 0xff3322 }),
+      );
+      visor.position.set(0, 1.95, 0.32);
+      g.add(visor);
       // plume
-      const plume = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.5, 6), new THREE.MeshStandardMaterial({ color: 0x8a1c1c }));
-      plume.position.y = 2.45; g.add(plume);
+      const plume = new THREE.Mesh(
+        new THREE.ConeGeometry(0.12, 0.5, 6),
+        new THREE.MeshStandardMaterial({ color: 0x8a1c1c }),
+      );
+      plume.position.y = 2.45;
+      g.add(plume);
       // legs
       const legGeo = new THREE.BoxGeometry(0.32, 0.65, 0.34);
-      const legL = new THREE.Mesh(legGeo, armorMat); legL.position.set(-0.22, 0.32, 0); legL.castShadow = true; g.add(legL);
-      const legR = new THREE.Mesh(legGeo, armorMat); legR.position.set(0.22, 0.32, 0); legR.castShadow = true; g.add(legR);
+      const legL = new THREE.Mesh(legGeo, armorMat);
+      legL.position.set(-0.22, 0.32, 0);
+      legL.castShadow = true;
+      g.add(legL);
+      const legR = new THREE.Mesh(legGeo, armorMat);
+      legR.position.set(0.22, 0.32, 0);
+      legR.castShadow = true;
+      g.add(legR);
       // shield
-      const shield = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.08), new THREE.MeshStandardMaterial({ color: 0x6b6b78, metalness: 0.5 }));
+      const shield = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.7, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x6b6b78, metalness: 0.5 }),
+      );
       shield.position.set(-0.6, 1.1, 0.25);
       g.add(shield);
       // sword
-      const sword = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.0), new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.6 }));
+      const sword = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.1, 1.0),
+        new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.6 }),
+      );
       sword.position.set(0.6, 1.1, 0.45);
       g.add(sword);
       return g;
@@ -1002,39 +1218,51 @@ export default function ZeldaGame3D() {
       const def = MONSTERS.mage;
       const robe = new THREE.Mesh(
         new THREE.ConeGeometry(0.7, 1.7, 8),
-        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.8 })
+        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.8 }),
       );
       robe.position.y = 0.85;
       robe.castShadow = true;
       g.add(robe);
       const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.3, 12, 10),
-        new THREE.MeshStandardMaterial({ color: 0x1a1a22 })
+        new THREE.MeshStandardMaterial({ color: 0x1a1a22 }),
       );
-      head.position.y = 1.85; head.castShadow = true; g.add(head);
+      head.position.y = 1.85;
+      head.castShadow = true;
+      g.add(head);
       const hat = new THREE.Mesh(
         new THREE.ConeGeometry(0.45, 0.9, 8),
-        new THREE.MeshStandardMaterial({ color: 0x1f3a52 })
+        new THREE.MeshStandardMaterial({ color: 0x1f3a52 }),
       );
-      hat.position.y = 2.4; g.add(hat);
+      hat.position.y = 2.4;
+      g.add(hat);
       // staff
       const staff = new THREE.Mesh(
         new THREE.CylinderGeometry(0.05, 0.05, 1.6, 6),
-        new THREE.MeshStandardMaterial({ color: 0x4a3320 })
+        new THREE.MeshStandardMaterial({ color: 0x4a3320 }),
       );
-      staff.position.set(0.5, 1.2, 0); g.add(staff);
+      staff.position.set(0.5, 1.2, 0);
+      g.add(staff);
       const orb = new THREE.Mesh(
         new THREE.SphereGeometry(0.18, 12, 10),
-        new THREE.MeshStandardMaterial({ color: 0x66ddff, emissive: 0x66ddff, emissiveIntensity: 0.7 })
+        new THREE.MeshStandardMaterial({
+          color: 0x66ddff,
+          emissive: 0x66ddff,
+          emissiveIntensity: 0.7,
+        }),
       );
-      orb.position.set(0.5, 2.05, 0); g.add(orb);
+      orb.position.set(0.5, 2.05, 0);
+      g.add(orb);
       // glowing eyes
       const eye = new THREE.Mesh(
         new THREE.SphereGeometry(0.06, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0x66ddff })
+        new THREE.MeshBasicMaterial({ color: 0x66ddff }),
       );
-      eye.position.set(-0.1, 1.85, 0.25); g.add(eye);
-      const eye2 = eye.clone(); eye2.position.set(0.1, 1.85, 0.25); g.add(eye2);
+      eye.position.set(-0.1, 1.85, 0.25);
+      g.add(eye);
+      const eye2 = eye.clone();
+      eye2.position.set(0.1, 1.85, 0.25);
+      g.add(eye2);
       return g;
     }
 
@@ -1044,7 +1272,13 @@ export default function ZeldaGame3D() {
       // big sphere body
       const body = new THREE.Mesh(
         new THREE.IcosahedronGeometry(1.8, 0),
-        new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.5, metalness: 0.2, emissive: 0x4a0808, emissiveIntensity: 0.3 })
+        new THREE.MeshStandardMaterial({
+          color: def.color,
+          roughness: 0.5,
+          metalness: 0.2,
+          emissive: 0x4a0808,
+          emissiveIntensity: 0.3,
+        }),
       );
       body.position.y = 2.0;
       body.castShadow = true;
@@ -1053,7 +1287,7 @@ export default function ZeldaGame3D() {
       for (let i = 0; i < 6; i++) {
         const spike = new THREE.Mesh(
           new THREE.ConeGeometry(0.25, 0.9, 4),
-          new THREE.MeshStandardMaterial({ color: 0x2a1010 })
+          new THREE.MeshStandardMaterial({ color: 0x2a1010 }),
         );
         const a = (i / 6) * Math.PI * 2;
         spike.position.set(Math.cos(a) * 1.6, 3.0, Math.sin(a) * 1.6);
@@ -1064,40 +1298,52 @@ export default function ZeldaGame3D() {
       // eye
       const eye = new THREE.Mesh(
         new THREE.SphereGeometry(0.45, 16, 12),
-        new THREE.MeshStandardMaterial({ color: 0xfff7d6, emissive: 0xffaa33, emissiveIntensity: 0.8 })
+        new THREE.MeshStandardMaterial({
+          color: 0xfff7d6,
+          emissive: 0xffaa33,
+          emissiveIntensity: 0.8,
+        }),
       );
       eye.position.set(0, 2.0, 1.6);
       g.add(eye);
       const pupil = new THREE.Mesh(
         new THREE.SphereGeometry(0.18, 12, 10),
-        new THREE.MeshBasicMaterial({ color: 0x111111 })
+        new THREE.MeshBasicMaterial({ color: 0x111111 }),
       );
       pupil.position.set(0, 2.0, 1.95);
       g.add(pupil);
       return g;
     }
 
-    function spawnMonster(type: MonsterType, x: number, z: number, zone?: "overworld" | "dungeon" | "desert" | "sky") {
+    function spawnMonster(type: MonsterType, x: number, z: number, zone?: Zone) {
       const def = MONSTERS[type];
       let group: THREE.Group;
       switch (type) {
-        case "slime": group = makeSlime(); break;
-        case "bat": group = makeBat(); break;
-        case "skeleton": group = makeSkeleton(); break;
-        case "knight": group = makeKnight(); break;
-        case "mage": group = makeMage(); break;
-        case "boss": group = makeBoss(); break;
+        case "slime":
+          group = makeSlime();
+          break;
+        case "bat":
+          group = makeBat();
+          break;
+        case "skeleton":
+          group = makeSkeleton();
+          break;
+        case "knight":
+          group = makeKnight();
+          break;
+        case "mage":
+          group = makeMage();
+          break;
+        case "boss":
+          group = makeBoss();
+          break;
       }
       group.position.set(x, type === "bat" ? 1.6 : 0, z);
       scene.add(group);
-      // Derive zone from spawn coords if not provided
-      let z0: "overworld" | "dungeon" | "desert" | "sky" = zone ?? "overworld";
-      if (!zone) {
-        if (x < -150) z0 = "sky";
-        else if (x > 150) z0 = "desert";
-        else if (z < -100) z0 = "dungeon";
-        else z0 = "overworld";
-      }
+      const z0: Zone = zone ?? zoneFromPosition(x, z);
+      // Cache bat wing refs once (avoids getObjectByName per frame)
+      const wingL = group.getObjectByName("wingL") as THREE.Mesh | undefined;
+      const wingR = group.getObjectByName("wingR") as THREE.Mesh | undefined;
       monsters.push({
         def,
         group,
@@ -1107,6 +1353,9 @@ export default function ZeldaGame3D() {
         attackCd: 0,
         bobPhase: Math.random() * Math.PI * 2,
         zone: z0,
+        baseY: 0,
+        wingL,
+        wingR,
       });
     }
 
@@ -1130,21 +1379,34 @@ export default function ZeldaGame3D() {
     // ============================================================
     // ---- COLLECTIBLES (rupees + heart container) ----
     // ============================================================
-    interface Rupee { mesh: THREE.Mesh; phase: number; value: number; }
+    interface Rupee {
+      mesh: THREE.Mesh;
+      phase: number;
+      value: number;
+      zone: Zone;
+    }
     const rupees: Rupee[] = [];
 
-    function makeRupee(x: number, z: number, value = 1, color = 0x4ade80) {
+    function makeRupee(x: number, z: number, value = 1, color = 0x4ade80, zone?: Zone) {
       const m = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.32, 0),
         new THREE.MeshStandardMaterial({
-          color, emissive: color, emissiveIntensity: 0.5,
-          metalness: 0.3, roughness: 0.2,
-        })
+          color,
+          emissive: color,
+          emissiveIntensity: 0.5,
+          metalness: 0.3,
+          roughness: 0.2,
+        }),
       );
       m.position.set(x, 0.7, z);
       m.castShadow = true;
       scene.add(m);
-      rupees.push({ mesh: m, phase: Math.random() * Math.PI * 2, value });
+      rupees.push({
+        mesh: m,
+        phase: Math.random() * Math.PI * 2,
+        value,
+        zone: zone ?? zoneFromPosition(x, z),
+      });
     }
     // green rupees along the path
     makeRupee(0, 22, 1);
@@ -1160,30 +1422,48 @@ export default function ZeldaGame3D() {
     makeRupee(-12, -30, 20, 0xff4a4a);
 
     // Heart container (boosts max HP permanently)
-    interface HeartContainer { mesh: THREE.Group; phase: number; collected: boolean; }
+    interface HeartContainer {
+      mesh: THREE.Group;
+      phase: number;
+      collected: boolean;
+      zone: Zone;
+    }
     const heartContainers: HeartContainer[] = [];
-    function makeHeartContainer(x: number, z: number) {
+    function makeHeartContainer(x: number, z: number, zone?: Zone) {
       const g = new THREE.Group();
       g.position.set(x, 1.2, z);
       const sphere = new THREE.Mesh(
         new THREE.IcosahedronGeometry(0.55, 1),
         new THREE.MeshStandardMaterial({
-          color: 0xff5577, emissive: 0xff2244, emissiveIntensity: 0.6,
-          metalness: 0.2, roughness: 0.3,
-        })
+          color: 0xff5577,
+          emissive: 0xff2244,
+          emissiveIntensity: 0.6,
+          metalness: 0.2,
+          roughness: 0.3,
+        }),
       );
       sphere.castShadow = true;
       g.add(sphere);
       // glow halo
       const halo = new THREE.Mesh(
         new THREE.RingGeometry(0.7, 1.0, 24),
-        new THREE.MeshBasicMaterial({ color: 0xff7799, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+        new THREE.MeshBasicMaterial({
+          color: 0xff7799,
+          transparent: true,
+          opacity: 0.35,
+          side: THREE.DoubleSide,
+        }),
       );
       halo.rotation.x = -Math.PI / 2;
       halo.position.y = -1.0;
       g.add(halo);
       scene.add(g);
-      heartContainers.push({ mesh: g, phase: 0, collected: false });
+      heartContainers.push({
+        mesh: g,
+        phase: 0,
+        collected: false,
+        zone: zone ?? zoneFromPosition(x, z),
+      });
     }
     makeHeartContainer(-22, 0); // tucked in the western field
 
@@ -1197,17 +1477,24 @@ export default function ZeldaGame3D() {
     for (let i = 0; i < 4; i++) {
       const slab = new THREE.Mesh(
         new THREE.BoxGeometry(1.0, 0.4, 1.0),
-        new THREE.MeshStandardMaterial({ color: 0x4a4a55, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x4a4a55, roughness: 1 }),
       );
       const a = (i / 4) * Math.PI * 2;
       slab.position.set(Math.cos(a) * 1.6, 0.2, Math.sin(a) * 1.6);
-      slab.castShadow = true; slab.receiveShadow = true;
+      slab.castShadow = true;
+      slab.receiveShadow = true;
       portalGroup.add(slab);
     }
     // ring frame
     const ringFrame = new THREE.Mesh(
       new THREE.TorusGeometry(1.4, 0.18, 12, 32),
-      new THREE.MeshStandardMaterial({ color: 0x9b6dff, emissive: 0x6a3fb8, emissiveIntensity: 0.7, metalness: 0.5, roughness: 0.3 })
+      new THREE.MeshStandardMaterial({
+        color: 0x9b6dff,
+        emissive: 0x6a3fb8,
+        emissiveIntensity: 0.7,
+        metalness: 0.5,
+        roughness: 0.3,
+      }),
     );
     ringFrame.rotation.x = Math.PI / 2;
     ringFrame.position.y = 1.8;
@@ -1216,7 +1503,12 @@ export default function ZeldaGame3D() {
     // swirling disc
     const portalDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.25, 32),
-      new THREE.MeshBasicMaterial({ color: 0xb98aff, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({
+        color: 0xb98aff,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
     );
     portalDisc.rotation.x = Math.PI / 2;
     portalDisc.position.y = 1.8;
@@ -1245,7 +1537,8 @@ export default function ZeldaGame3D() {
       if (w <= 0.01 || d <= 0.01) return;
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
       wall.position.set(cx, wallH / 2, cz);
-      wall.castShadow = true; wall.receiveShadow = true;
+      wall.castShadow = true;
+      wall.receiveShadow = true;
       dungeonGroup.add(wall);
       const steps = Math.ceil(Math.max(w, d) / 1.5);
       for (let k = 0; k <= steps; k++) {
@@ -1309,7 +1602,10 @@ export default function ZeldaGame3D() {
           else addWallSeg(fixedAxis, cz + segCenter, 1, segLen);
         }
       };
-      buildSide("N"); buildSide("S"); buildSide("E"); buildSide("W");
+      buildSide("N");
+      buildSide("S");
+      buildSide("E");
+      buildSide("W");
       // corner torches
       const torchSpots: [number, number][] = [
         [cx - w / 2 + 2, cz - d / 2 + 2],
@@ -1323,7 +1619,7 @@ export default function ZeldaGame3D() {
         dungeonGroup.add(torch);
         const flame = new THREE.Mesh(
           new THREE.SphereGeometry(0.22, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0xffaa44 })
+          new THREE.MeshBasicMaterial({ color: 0xffaa44 }),
         );
         flame.position.copy(torch.position);
         dungeonGroup.add(flame);
@@ -1333,10 +1629,11 @@ export default function ZeldaGame3D() {
     const addPillar = (px: number, pz: number) => {
       const pillar = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 4, 1.2),
-        new THREE.MeshStandardMaterial({ color: 0x5a4a60, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0x5a4a60, roughness: 1 }),
       );
       pillar.position.set(px, 2, pz);
-      pillar.castShadow = true; pillar.receiveShadow = true;
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
       dungeonGroup.add(pillar);
       obstacles.push({ pos: new THREE.Vector3(px, 0, pz), radius: 0.8 });
     };
@@ -1346,9 +1643,9 @@ export default function ZeldaGame3D() {
 
     // Room A — Entry Hall (south). 30x24, doors: S (entry portal), N (to boss room), W (to treasure room)
     buildRoom(dox, doz, 30, 24, [
-      { side: "S", offset: 0, width: 4 },     // entry from overworld
-      { side: "N", offset: 0, width: 4 },     // to boss room
-      { side: "W", offset: 0, width: 4 },     // to treasure room
+      { side: "S", offset: 0, width: 4 }, // entry from overworld
+      { side: "N", offset: 0, width: 4 }, // to boss room
+      { side: "W", offset: 0, width: 4 }, // to treasure room
     ]);
     addPillar(dox - 8, doz - 6);
     addPillar(dox + 8, doz - 6);
@@ -1356,7 +1653,8 @@ export default function ZeldaGame3D() {
     addPillar(dox + 8, doz + 6);
 
     // Room B — Boss Room (north of A). 28x24, doors: S (back to A), E (to mage room)
-    const bx = dox, bz = doz - 24;
+    const bx = dox,
+      bz = doz - 24;
     buildRoom(bx, bz, 28, 24, [
       { side: "S", offset: 0, width: 4 },
       { side: "E", offset: 0, width: 4 },
@@ -1365,16 +1663,14 @@ export default function ZeldaGame3D() {
     addPillar(bx + 10, bz - 8);
 
     // Room C — Treasure Vault (west of A). 20x18, door: E (back to A)
-    const cx = dox - 25, cz = doz;
-    buildRoom(cx, cz, 20, 18, [
-      { side: "E", offset: 0, width: 4 },
-    ]);
+    const cx = dox - 25,
+      cz = doz;
+    buildRoom(cx, cz, 20, 18, [{ side: "E", offset: 0, width: 4 }]);
 
     // Room D — Mage Sanctum (east of B). 22x20, door: W (back to B)
-    const dx = bx + 25, dz = bz;
-    buildRoom(dx, dz, 22, 20, [
-      { side: "W", offset: 0, width: 4 },
-    ]);
+    const dx = bx + 25,
+      dz = bz;
+    buildRoom(dx, dz, 22, 20, [{ side: "W", offset: 0, width: 4 }]);
     addPillar(dx, dz);
 
     // dungeon exit portal (back to overworld) — just south of Room A
@@ -1383,14 +1679,24 @@ export default function ZeldaGame3D() {
     dungeonGroup.add(exitPortal);
     const exitRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.4, 0.18, 12, 32),
-      new THREE.MeshStandardMaterial({ color: 0x6fbf73, emissive: 0x4a8c3a, emissiveIntensity: 0.7, metalness: 0.5 })
+      new THREE.MeshStandardMaterial({
+        color: 0x6fbf73,
+        emissive: 0x4a8c3a,
+        emissiveIntensity: 0.7,
+        metalness: 0.5,
+      }),
     );
     exitRing.rotation.x = Math.PI / 2;
     exitRing.position.y = 1.8;
     exitPortal.add(exitRing);
     const exitDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.25, 32),
-      new THREE.MeshBasicMaterial({ color: 0x8af09a, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({
+        color: 0x8af09a,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
     );
     exitDisc.rotation.x = Math.PI / 2;
     exitDisc.position.y = 1.8;
@@ -1409,7 +1715,7 @@ export default function ZeldaGame3D() {
     // Sand floor
     const desertFloor = new THREE.Mesh(
       new THREE.PlaneGeometry(120, 120, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xe6c878, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0xe6c878, roughness: 1 }),
     );
     desertFloor.rotation.x = -Math.PI / 2;
     desertFloor.position.set(desertOrigin.x, 0, desertOrigin.z);
@@ -1421,11 +1727,15 @@ export default function ZeldaGame3D() {
       const r = 3 + Math.random() * 5;
       const dune = new THREE.Mesh(
         new THREE.SphereGeometry(r, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-        new THREE.MeshStandardMaterial({ color: 0xd9b86a, roughness: 1 })
+        new THREE.MeshStandardMaterial({ color: 0xd9b86a, roughness: 1 }),
       );
       const ang = Math.random() * Math.PI * 2;
       const dist = 10 + Math.random() * 45;
-      dune.position.set(desertOrigin.x + Math.cos(ang) * dist, -0.2, desertOrigin.z + Math.sin(ang) * dist);
+      dune.position.set(
+        desertOrigin.x + Math.cos(ang) * dist,
+        -0.2,
+        desertOrigin.z + Math.sin(ang) * dist,
+      );
       dune.scale.y = 0.35 + Math.random() * 0.3;
       dune.receiveShadow = true;
       desertGroup.add(dune);
@@ -1439,7 +1749,7 @@ export default function ZeldaGame3D() {
       const cactus = new THREE.Group();
       const trunk = new THREE.Mesh(
         new THREE.CylinderGeometry(0.35, 0.4, 2.2, 8),
-        new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 })
+        new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 }),
       );
       trunk.position.y = 1.1;
       trunk.castShadow = true;
@@ -1447,7 +1757,7 @@ export default function ZeldaGame3D() {
       if (Math.random() > 0.4) {
         const arm = new THREE.Mesh(
           new THREE.CylinderGeometry(0.22, 0.25, 1.2, 8),
-          new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 })
+          new THREE.MeshStandardMaterial({ color: 0x3a7a3a, roughness: 0.9 }),
         );
         arm.position.set(0.55, 1.4, 0);
         arm.rotation.z = -Math.PI / 2.5;
@@ -1461,7 +1771,7 @@ export default function ZeldaGame3D() {
     // Pyramid landmark
     const pyramid = new THREE.Mesh(
       new THREE.ConeGeometry(8, 10, 4),
-      new THREE.MeshStandardMaterial({ color: 0xc8a868, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0xc8a868, roughness: 1 }),
     );
     pyramid.position.set(desertOrigin.x - 25, 5, desertOrigin.z - 20);
     pyramid.rotation.y = Math.PI / 4;
@@ -1472,7 +1782,7 @@ export default function ZeldaGame3D() {
     // Sun light tint object (visual only)
     const sunOrb = new THREE.Mesh(
       new THREE.SphereGeometry(3, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0xffd27a })
+      new THREE.MeshBasicMaterial({ color: 0xffd27a }),
     );
     sunOrb.position.set(desertOrigin.x + 40, 30, desertOrigin.z - 40);
     desertGroup.add(sunOrb);
@@ -1483,14 +1793,24 @@ export default function ZeldaGame3D() {
     desertGroup.add(desertReturn);
     const drRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.4, 0.18, 12, 32),
-      new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0xff8800, emissiveIntensity: 0.8, metalness: 0.5 })
+      new THREE.MeshStandardMaterial({
+        color: 0xffaa44,
+        emissive: 0xff8800,
+        emissiveIntensity: 0.8,
+        metalness: 0.5,
+      }),
     );
     drRing.rotation.x = Math.PI / 2;
     drRing.position.y = 1.8;
     desertReturn.add(drRing);
     const drDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.25, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({
+        color: 0xffd28a,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      }),
     );
     drDisc.rotation.x = Math.PI / 2;
     drDisc.position.y = 1.8;
@@ -1503,14 +1823,24 @@ export default function ZeldaGame3D() {
     dungeonGroup.add(dungeonDesertPortal);
     const ddRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.4, 0.18, 12, 32),
-      new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0xff8800, emissiveIntensity: 0.9, metalness: 0.5 })
+      new THREE.MeshStandardMaterial({
+        color: 0xffaa44,
+        emissive: 0xff8800,
+        emissiveIntensity: 0.9,
+        metalness: 0.5,
+      }),
     );
     ddRing.rotation.x = Math.PI / 2;
     ddRing.position.y = 1.8;
     dungeonDesertPortal.add(ddRing);
     const ddDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.25, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({
+        color: 0xffd28a,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      }),
     );
     ddDisc.rotation.x = Math.PI / 2;
     ddDisc.position.y = 1.8;
@@ -1530,7 +1860,12 @@ export default function ZeldaGame3D() {
     const skyGroup = new THREE.Group();
     scene.add(skyGroup);
     // floating cloud platform (main island)
-    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, emissive: 0x88aaff, emissiveIntensity: 0.15, roughness: 1 });
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xf2f6ff,
+      emissive: 0x88aaff,
+      emissiveIntensity: 0.15,
+      roughness: 1,
+    });
     const skyPlatform = new THREE.Mesh(new THREE.CylinderGeometry(14, 16, 1.4, 24), cloudMat);
     skyPlatform.position.set(skyOrigin.x, skyOrigin.y - 0.7, skyOrigin.z);
     skyPlatform.receiveShadow = true;
@@ -1539,8 +1874,15 @@ export default function ZeldaGame3D() {
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2;
       const r = 13 + Math.random() * 2;
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(1.6 + Math.random() * 1.0, 10, 8), cloudMat);
-      puff.position.set(skyOrigin.x + Math.cos(a) * r, skyOrigin.y + 0.2, skyOrigin.z + Math.sin(a) * r);
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(1.6 + Math.random() * 1.0, 10, 8),
+        cloudMat,
+      );
+      puff.position.set(
+        skyOrigin.x + Math.cos(a) * r,
+        skyOrigin.y + 0.2,
+        skyOrigin.z + Math.sin(a) * r,
+      );
       skyGroup.add(puff);
     }
     // smaller floating islands as scenery
@@ -1548,13 +1890,17 @@ export default function ZeldaGame3D() {
       const a = Math.random() * Math.PI * 2;
       const dist = 30 + Math.random() * 40;
       const isle = new THREE.Mesh(new THREE.SphereGeometry(3 + Math.random() * 2, 10, 8), cloudMat);
-      isle.position.set(skyOrigin.x + Math.cos(a) * dist, skyOrigin.y + (Math.random() - 0.5) * 14, skyOrigin.z + Math.sin(a) * dist);
+      isle.position.set(
+        skyOrigin.x + Math.cos(a) * dist,
+        skyOrigin.y + (Math.random() - 0.5) * 14,
+        skyOrigin.z + Math.sin(a) * dist,
+      );
       skyGroup.add(isle);
     }
     // sun beacon
     const skySun = new THREE.Mesh(
       new THREE.SphereGeometry(3, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffeeaa })
+      new THREE.MeshBasicMaterial({ color: 0xffeeaa }),
     );
     skySun.position.set(skyOrigin.x + 50, skyOrigin.y + 30, skyOrigin.z - 40);
     skyGroup.add(skySun);
@@ -1571,8 +1917,7 @@ export default function ZeldaGame3D() {
       spawnMonster("bat", bx2, bz2, "sky");
       const last = monsters[monsters.length - 1];
       last.group.position.y = skyOrigin.y + 1.6;
-      // tag as sky bat by stashing baseY in bobPhase via custom property
-      (last as unknown as { baseY: number }).baseY = skyOrigin.y;
+      last.baseY = skyOrigin.y;
     }
     // extra flying monsters for the sky biome
     const extraSkyBats: Array<[number, number]> = [
@@ -1585,11 +1930,11 @@ export default function ZeldaGame3D() {
       spawnMonster("bat", bx3, bz3, "sky");
       const last = monsters[monsters.length - 1];
       last.group.position.y = skyOrigin.y + 2.2;
-      (last as unknown as { baseY: number }).baseY = skyOrigin.y + 0.6;
+      last.baseY = skyOrigin.y + 0.6;
     }
 
     // floating drifting cloud puffs around the sky island for atmosphere
-    const driftClouds: THREE.Mesh[] = [];
+    const driftClouds: THREE.Object3D[] = [];
     for (let i = 0; i < 14; i++) {
       const a = Math.random() * Math.PI * 2;
       const dist = 18 + Math.random() * 35;
@@ -1598,7 +1943,7 @@ export default function ZeldaGame3D() {
       for (let k = 0; k < n; k++) {
         const puff = new THREE.Mesh(
           new THREE.SphereGeometry(2 + Math.random() * 1.6, 10, 8),
-          cloudMat
+          cloudMat,
         );
         puff.position.set((k - n / 2) * 1.6, Math.random() * 0.6, Math.random() * 0.8);
         cluster.add(puff);
@@ -1606,10 +1951,10 @@ export default function ZeldaGame3D() {
       cluster.position.set(
         skyOrigin.x + Math.cos(a) * dist,
         skyOrigin.y + (Math.random() - 0.5) * 18,
-        skyOrigin.z + Math.sin(a) * dist
+        skyOrigin.z + Math.sin(a) * dist,
       );
       skyGroup.add(cluster);
-      driftClouds.push(cluster as unknown as THREE.Mesh);
+      driftClouds.push(cluster);
     }
 
     // Sky return portals — one back to the dungeon, one to the desert
@@ -1618,14 +1963,26 @@ export default function ZeldaGame3D() {
     skyGroup.add(skyToDungeonPortal);
     const sdRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.2, 0.18, 12, 28),
-      new THREE.MeshStandardMaterial({ color: 0x6aa6ff, emissive: 0x224488, emissiveIntensity: 1.2, roughness: 0.3 })
+      new THREE.MeshStandardMaterial({
+        color: 0x6aa6ff,
+        emissive: 0x224488,
+        emissiveIntensity: 1.2,
+        roughness: 0.3,
+      }),
     );
     sdRing.rotation.x = Math.PI / 2;
     sdRing.position.y = 1.6;
     skyToDungeonPortal.add(sdRing);
     const sdDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.05, 28),
-      new THREE.MeshStandardMaterial({ color: 0x88c0ff, emissive: 0x335599, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+      new THREE.MeshStandardMaterial({
+        color: 0x88c0ff,
+        emissive: 0x335599,
+        emissiveIntensity: 0.9,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
     );
     sdDisc.rotation.x = Math.PI / 2;
     sdDisc.position.y = 1.6;
@@ -1637,31 +1994,39 @@ export default function ZeldaGame3D() {
     skyGroup.add(skyToDesertPortal);
     const ssRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.2, 0.18, 12, 28),
-      new THREE.MeshStandardMaterial({ color: 0xffb060, emissive: 0x884422, emissiveIntensity: 1.2, roughness: 0.3 })
+      new THREE.MeshStandardMaterial({
+        color: 0xffb060,
+        emissive: 0x884422,
+        emissiveIntensity: 1.2,
+        roughness: 0.3,
+      }),
     );
     ssRing.rotation.x = Math.PI / 2;
     ssRing.position.y = 1.6;
     skyToDesertPortal.add(ssRing);
     const ssDisc = new THREE.Mesh(
       new THREE.CircleGeometry(1.05, 28),
-      new THREE.MeshStandardMaterial({ color: 0xffd0a0, emissive: 0x884422, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+      new THREE.MeshStandardMaterial({
+        color: 0xffd0a0,
+        emissive: 0x884422,
+        emissiveIntensity: 0.9,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
     );
     ssDisc.rotation.x = Math.PI / 2;
     ssDisc.position.y = 1.6;
     skyToDesertPortal.add(ssDisc);
     skyToDesertPortal.add(new THREE.PointLight(0xffb060, 1.2, 8));
 
-
-
-
-
     // Enemies & rewards per room
     // Room A — entry skirmish
     spawnMonster("skeleton", dox - 6, doz - 4);
     spawnMonster("skeleton", dox + 6, doz - 4);
-    spawnMonster("bat",      dox,     doz + 4);
+    spawnMonster("bat", dox, doz + 4);
     // Room B — boss room
-    spawnMonster("knight", bx,     bz - 6);
+    spawnMonster("knight", bx, bz - 6);
     spawnMonster("skeleton", bx - 6, bz);
     spawnMonster("skeleton", bx + 6, bz);
     makeRupee(bx, bz - 10, 20, 0xff4a4a);
@@ -1671,7 +2036,7 @@ export default function ZeldaGame3D() {
     makeRupee(cx + 4, cz - 4, 5, 0x4a8fff);
     makeRupee(cx - 4, cz + 4, 5, 0x4a8fff);
     makeRupee(cx + 4, cz + 4, 5, 0x4a8fff);
-    makeRupee(cx,     cz,     20, 0xff4a4a);
+    makeRupee(cx, cz, 20, 0xff4a4a);
     // Room D — mage sanctum
     spawnMonster("mage", dx - 6, dz - 4);
     spawnMonster("mage", dx + 6, dz + 4);
@@ -1680,32 +2045,45 @@ export default function ZeldaGame3D() {
     // ---- Projectiles ----
     const projectiles: Projectile[] = [];
 
-    function fireProjectile(from: THREE.Vector3, target: THREE.Vector3, fromEnemy: boolean, dmg: number) {
+    function fireProjectile(
+      from: THREE.Vector3,
+      target: THREE.Vector3,
+      fromEnemy: boolean,
+      dmg: number,
+    ) {
       let m: THREE.Mesh;
       if (fromEnemy) {
         m = new THREE.Mesh(
           new THREE.SphereGeometry(0.2, 10, 8),
-          new THREE.MeshStandardMaterial({ color: 0x66ddff, emissive: 0x66ddff, emissiveIntensity: 0.8 })
+          new THREE.MeshStandardMaterial({
+            color: 0x66ddff,
+            emissive: 0x66ddff,
+            emissiveIntensity: 0.8,
+          }),
         );
       } else {
         // Arrow — thin cylinder with cone tip
         const arrowGroup = new THREE.Group();
         const shaft = new THREE.Mesh(
           new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6),
-          new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 })
+          new THREE.MeshStandardMaterial({ color: 0x6b3a14, roughness: 0.85 }),
         );
         shaft.rotation.z = Math.PI / 2;
         arrowGroup.add(shaft);
         const tip = new THREE.Mesh(
           new THREE.ConeGeometry(0.07, 0.18, 6),
-          new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.3 })
+          new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.3 }),
         );
         tip.rotation.z = -Math.PI / 2;
         tip.position.x = 0.42;
         arrowGroup.add(tip);
         const fletch = new THREE.Mesh(
           new THREE.ConeGeometry(0.1, 0.18, 4),
-          new THREE.MeshStandardMaterial({ color: 0xff2a3a, emissive: 0xaa0011, emissiveIntensity: 0.4 })
+          new THREE.MeshStandardMaterial({
+            color: 0xff2a3a,
+            emissive: 0xaa0011,
+            emissiveIntensity: 0.4,
+          }),
         );
         fletch.rotation.z = Math.PI / 2;
         fletch.position.x = -0.38;
@@ -1713,7 +2091,7 @@ export default function ZeldaGame3D() {
         // wrap into a single mesh-like proxy: use a small invisible mesh as anchor and add arrowGroup as child
         const anchor = new THREE.Mesh(
           new THREE.SphereGeometry(0.05, 4, 4),
-          new THREE.MeshBasicMaterial({ visible: false })
+          new THREE.MeshBasicMaterial({ visible: false }),
         );
         anchor.add(arrowGroup);
         const dir = target.clone().sub(from).setY(0).normalize();
@@ -1724,7 +2102,14 @@ export default function ZeldaGame3D() {
       m.position.copy(from);
       const dir = target.clone().sub(from).setY(0).normalize();
       scene.add(m);
-      projectiles.push({ mesh: m, vel: dir.multiplyScalar(fromEnemy ? 12 : 18), life: fromEnemy ? 2.0 : 1.6, damage: dmg, fromEnemy });
+      projectiles.push({
+        mesh: m,
+        vel: dir.multiplyScalar(fromEnemy ? 12 : 18),
+        life: fromEnemy ? 2.0 : 1.6,
+        damage: dmg,
+        fromEnemy,
+        zone: stateRef.current.zone,
+      });
     }
 
     // ---- Input ----
@@ -1733,9 +2118,31 @@ export default function ZeldaGame3D() {
     let bowFirePressed = false;
     let firePressed = false;
     let flapPressed = false;
+    const isEditableTarget = (t: EventTarget | null) => {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        tag === "BUTTON" ||
+        tag === "A" ||
+        t.isContentEditable
+      );
+    };
     const onKey = (e: KeyboardEvent, down: boolean) => {
+      // Don't steal keys while typing in a form field (future-proof + a11y)
+      if (isEditableTarget(e.target)) {
+        if (!down) keys.delete(e.key.toLowerCase());
+        return;
+      }
       const slotMap: Record<string, TunicId> = {
-        "1": "green", "2": "red", "3": "blue", "4": "white", "5": "shadow", "6": "dragon",
+        "1": "green",
+        "2": "red",
+        "3": "blue",
+        "4": "white",
+        "5": "shadow",
+        "6": "dragon",
       };
       if (down && slotMap[e.key]) {
         e.preventDefault();
@@ -1743,7 +2150,25 @@ export default function ZeldaGame3D() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"," ","j","z","u","b","f","shift"].includes(k)) {
+      if (
+        [
+          "w",
+          "a",
+          "s",
+          "d",
+          "arrowup",
+          "arrowdown",
+          "arrowleft",
+          "arrowright",
+          " ",
+          "j",
+          "z",
+          "u",
+          "b",
+          "f",
+          "shift",
+        ].includes(k)
+      ) {
         e.preventDefault();
       }
       if (down) {
@@ -1781,23 +2206,42 @@ export default function ZeldaGame3D() {
     const onUp = (e: KeyboardEvent) => onKey(e, false);
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
+    // Clear held keys when the window loses focus / tab is hidden (prevents stuck movement)
+    const onBlur = () => {
+      keys.clear();
+    };
+    const onVis = () => {
+      if (document.hidden) keys.clear();
+    };
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVis);
 
-    // Mouse for camera rotation (drag)
+    // Mouse + touch for camera rotation (drag) — Pointer Events cover both
     let camYaw = Math.PI; // facing -z by default; we'll set behind hero
     let camPitch = 0.55;
     let dragging = false;
-    let lastX = 0, lastY = 0;
-    const onMD = (e: MouseEvent) => { dragging = true; lastX = e.clientX; lastY = e.clientY; };
-    const onMU = () => { dragging = false; };
-    const onMM = (e: MouseEvent) => {
+    let lastX = 0,
+      lastY = 0;
+    const onPointerDown = (e: PointerEvent) => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+    const onPointerMove = (e: PointerEvent) => {
       if (!dragging) return;
       camYaw -= (e.clientX - lastX) * 0.005;
       camPitch = Math.max(0.2, Math.min(1.2, camPitch + (e.clientY - lastY) * 0.003));
-      lastX = e.clientX; lastY = e.clientY;
+      lastX = e.clientX;
+      lastY = e.clientY;
     };
-    renderer.domElement.addEventListener("mousedown", onMD);
-    window.addEventListener("mouseup", onMU);
-    window.addEventListener("mousemove", onMM);
+    const onPointerUp = () => {
+      dragging = false;
+    };
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    renderer.domElement.style.touchAction = "none";
 
     // ---- Helpers ----
     function collidesObstacle(x: number, z: number, radius: number) {
@@ -1808,7 +2252,7 @@ export default function ZeldaGame3D() {
       // overworld-only: lake + world bounds. Dungeon is far outside these bounds,
       // so applying them there would freeze the player in place.
       if (stateRef.current.zone === "overworld") {
-        const dl = Math.hypot(x - 0, z - (-25));
+        const dl = Math.hypot(x - 0, z - -25);
         if (dl < 7 + radius) return true;
         if (Math.abs(x) > WORLD / 2 - 1 || Math.abs(z) > WORLD / 2 - 1) return true;
       }
@@ -1820,29 +2264,45 @@ export default function ZeldaGame3D() {
     let raf = 0;
     let walkPhase = 0;
     let lastNear = "";
+    let paused = false;
+    // Reused temp vectors — avoids per-frame allocations in the hot loop
+    const tmpFwd = new THREE.Vector3();
+    const tmpOrigin = new THREE.Vector3();
+    const tmpTarget = new THREE.Vector3();
+    const tmpTo = new THREE.Vector3();
+    const tmpCamPos = new THREE.Vector3();
+    const tmpSwordHit = new THREE.Vector3();
 
     function frame() {
+      if (paused) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       const dt = Math.min(0.05, clock.getDelta());
       const st = stateRef.current;
       const tunic = TUNICS[st.tunic];
 
       // --- Hero movement ---
       // WASD = camera-relative; Arrow keys = world-absolute (Up=north, etc.)
-      let camX = 0, camZ = 0;       // camera-relative input (WASD)
-      let worldX = 0, worldZ = 0;   // world-absolute input (arrows)
+      let camX = 0,
+        camZ = 0; // camera-relative input (WASD)
+      let worldX = 0,
+        worldZ = 0; // world-absolute input (arrows)
       if (keys.has("w")) camZ -= 1;
       if (keys.has("s")) camZ += 1;
       if (keys.has("a")) camX -= 1;
       if (keys.has("d")) camX += 1;
-      if (keys.has("arrowup"))    worldZ -= 1;
-      if (keys.has("arrowdown"))  worldZ += 1;
-      if (keys.has("arrowleft"))  worldX -= 1;
+      if (keys.has("arrowup")) worldZ -= 1;
+      if (keys.has("arrowdown")) worldZ += 1;
+      if (keys.has("arrowleft")) worldX -= 1;
       if (keys.has("arrowright")) worldX += 1;
 
-      let wx = 0, wz = 0;
+      let wx = 0,
+        wz = 0;
       const camLen = Math.hypot(camX, camZ);
       if (camLen > 0) {
-        camX /= camLen; camZ /= camLen;
+        camX /= camLen;
+        camZ /= camLen;
         const cosY = Math.cos(camYaw);
         const sinY = Math.sin(camYaw);
         wx += camX * cosY - camZ * sinY;
@@ -1854,7 +2314,8 @@ export default function ZeldaGame3D() {
       let moving = false;
       if (wLen > 0) {
         moving = true;
-        wx /= wLen; wz /= wLen;
+        wx /= wLen;
+        wz /= wLen;
         const speed = tunic.speed;
         const nx = heroGroup.position.x + wx * speed * dt;
         const nz = heroGroup.position.z + wz * speed * dt;
@@ -1919,8 +2380,12 @@ export default function ZeldaGame3D() {
       if (st.tunic === "dragon") {
         dLegL.rotation.x = moving ? Math.sin(walkPhase) * 0.5 : 0;
         dLegR.rotation.x = moving ? -Math.sin(walkPhase) * 0.5 : 0;
-        dArmL.rotation.x = moving ? -Math.sin(walkPhase) * 0.4 : Math.sin(clock.elapsedTime * 1.2) * 0.1;
-        dArmR.rotation.x = moving ? Math.sin(walkPhase) * 0.4 : -Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        dArmL.rotation.x = moving
+          ? -Math.sin(walkPhase) * 0.4
+          : Math.sin(clock.elapsedTime * 1.2) * 0.1;
+        dArmR.rotation.x = moving
+          ? Math.sin(walkPhase) * 0.4
+          : -Math.sin(clock.elapsedTime * 1.2) * 0.1;
         const t = clock.elapsedTime;
         tailSegs.forEach((seg, i) => {
           seg.rotation.y = Math.sin(t * 2 + i * 0.5) * 0.18;
@@ -1953,10 +2418,13 @@ export default function ZeldaGame3D() {
           // brief bow draw pose so the bow swings out
           setBowPose(true);
           st.bowDrawTimer = 0.35;
-          const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
-          const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.15, 0)).add(fwd.clone().multiplyScalar(0.6));
-          const target = origin.clone().add(fwd.clone().multiplyScalar(10));
-          fireProjectile(origin, target, false, 2);
+          tmpFwd.set(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+          tmpOrigin.copy(heroGroup.position);
+          tmpOrigin.addScaledVector(tmpFwd, 0.6);
+          tmpOrigin.y = heroGroup.position.y + 1.15;
+          tmpTarget.copy(tmpOrigin);
+          tmpTarget.addScaledVector(tmpFwd, 10);
+          fireProjectile(tmpOrigin, tmpTarget, false, 2);
           bowString.scale.x = 0.4;
           setHud((h) => ({ ...h, arrows: st.arrows }));
         } else {
@@ -1980,25 +2448,30 @@ export default function ZeldaGame3D() {
         fireMat.opacity = 0.4 + t * 0.5;
         fireMat.color.setHex(t > 0.5 ? 0xffee66 : 0xff5522);
         fireLight.intensity = 2.4 * t;
-        // damage monsters in cone in front of hero
-        const fwdDir = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
-        const origin = heroGroup.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+        // damage monsters in cone in front of hero (zone-gated)
+        tmpFwd.set(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+        tmpOrigin.copy(heroGroup.position);
+        tmpOrigin.y = heroGroup.position.y + 1.5;
         for (const m of monsters) {
-          if (!m.alive) continue;
-          const to = new THREE.Vector3(m.group.position.x - origin.x, 0, m.group.position.z - origin.z);
-          const d = to.length();
+          if (!m.alive || m.zone !== st.zone) continue;
+          tmpTo.set(m.group.position.x - tmpOrigin.x, 0, m.group.position.z - tmpOrigin.z);
+          const d = tmpTo.length();
           if (d < 6 && d > 0.01) {
-            const dot = to.normalize().dot(fwdDir);
+            const dot = tmpTo.normalize().dot(tmpFwd);
             if (dot > 0.55 && m.hitFlash <= 0) {
-              const dmg = 2 * tunic.damageMul;
+              const dmg = calcFireBreathDamage(tunic.damageMul);
               m.hp -= dmg;
               m.hitFlash = 0.15;
               if (m.hp <= 0) {
                 m.alive = false;
-                scene.remove(m.group);
+                removeAndDispose(m.group);
                 st.rupees += m.def.rupees;
                 setHud((h) => ({ ...h, rupees: st.rupees }));
-                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+                if (m.def.type === "boss") {
+                  st.bossDefeated = true;
+                  setHud((h) => ({ ...h, won: true }));
+                }
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z, m.zone);
               }
             }
           }
@@ -2035,20 +2508,33 @@ export default function ZeldaGame3D() {
         body.visible = blink;
         head.visible = blink;
         hat.visible = blink;
-        armL.visible = blink; armR.visible = blink;
-        legL.visible = blink; legR.visible = blink;
+        armL.visible = blink;
+        armR.visible = blink;
+        legL.visible = blink;
+        legR.visible = blink;
       } else {
-        body.visible = true; head.visible = true; hat.visible = true;
-        armL.visible = true; armR.visible = true; legL.visible = true; legR.visible = true;
+        body.visible = true;
+        head.visible = true;
+        hat.visible = true;
+        armL.visible = true;
+        armR.visible = true;
+        legL.visible = true;
+        legR.visible = true;
       }
 
-      // --- Pickup tunics ---
+      // --- Pickup tunics (zone-gated + hidden when not in zone) ---
       for (let i = pickups.length - 1; i >= 0; i--) {
         const p = pickups[i];
+        const inZone = p.zone === st.zone;
+        p.mesh.visible = inZone;
+        if (!inZone) continue;
         p.bobPhase += dt * 2;
         p.mesh.position.y = 0.6 + Math.sin(p.bobPhase) * 0.15;
         p.mesh.rotation.y += dt * 0.8;
-        const d = Math.hypot(heroGroup.position.x - p.mesh.position.x, heroGroup.position.z - p.mesh.position.z);
+        const d = Math.hypot(
+          heroGroup.position.x - p.mesh.position.x,
+          heroGroup.position.z - p.mesh.position.z,
+        );
         if (d < 1.0) {
           if (!st.inventory.has(p.tunic)) {
             st.inventory.add(p.tunic);
@@ -2056,56 +2542,80 @@ export default function ZeldaGame3D() {
             equipFnRef.current(p.tunic);
             showToast(`Found ${TUNICS[p.tunic].name} — ${TUNICS[p.tunic].perk}`);
           }
-          scene.remove(p.mesh);
+          removeAndDispose(p.mesh);
           pickups.splice(i, 1);
         }
       }
 
-      // --- Hearts ---
+      // --- Hearts (zone-gated) ---
       for (let i = hearts.length - 1; i >= 0; i--) {
         const h = hearts[i];
+        const inZone = h.zone === st.zone;
+        h.mesh.visible = inZone;
+        if (!inZone) continue;
         h.bobPhase += dt * 3;
-        h.mesh.position.y = 0.7 + Math.sin(h.bobPhase) * 0.1;
-        const d = Math.hypot(heroGroup.position.x - h.mesh.position.x, heroGroup.position.z - h.mesh.position.z);
+        h.mesh.position.y = (h.zone === "sky" ? skyOrigin.y : 0) + 0.7 + Math.sin(h.bobPhase) * 0.1;
+        const d = Math.hypot(
+          heroGroup.position.x - h.mesh.position.x,
+          heroGroup.position.z - h.mesh.position.z,
+        );
         if (d < 0.9) {
           st.hp = Math.min(st.maxHp, st.hp + 2);
           setHud((hh) => ({ ...hh, hp: st.hp }));
-          scene.remove(h.mesh);
+          removeAndDispose(h.mesh);
           hearts.splice(i, 1);
         }
       }
 
-      // --- Rupees ---
+      // --- Rupees (zone-gated + hidden when not in zone) ---
       for (let i = rupees.length - 1; i >= 0; i--) {
         const r = rupees[i];
+        const inZone = r.zone === st.zone;
+        r.mesh.visible = inZone;
+        if (!inZone) continue;
         r.phase += dt * 2;
         r.mesh.position.y = 0.7 + Math.sin(r.phase) * 0.15;
         r.mesh.rotation.y += dt * 2;
-        const d = Math.hypot(heroGroup.position.x - r.mesh.position.x, heroGroup.position.z - r.mesh.position.z);
+        const d = Math.hypot(
+          heroGroup.position.x - r.mesh.position.x,
+          heroGroup.position.z - r.mesh.position.z,
+        );
         if (d < 0.9) {
           st.rupees += r.value;
           setHud((h) => ({ ...h, rupees: st.rupees }));
-          showToast(r.value >= 20 ? `+${r.value} rupees!` : r.value >= 5 ? `+${r.value} rupees` : `+${r.value} rupee`);
-          scene.remove(r.mesh);
+          showToast(
+            r.value >= 20
+              ? `+${r.value} rupees!`
+              : r.value >= 5
+                ? `+${r.value} rupees`
+                : `+${r.value} rupee`,
+          );
+          removeAndDispose(r.mesh);
           rupees.splice(i, 1);
         }
       }
 
-      // --- Heart containers ---
+      // --- Heart containers (zone-gated) ---
       for (let i = heartContainers.length - 1; i >= 0; i--) {
         const hc = heartContainers[i];
         if (hc.collected) continue;
+        const inZone = hc.zone === st.zone;
+        hc.mesh.visible = inZone;
+        if (!inZone) continue;
         hc.phase += dt * 1.5;
         hc.mesh.position.y = 1.2 + Math.sin(hc.phase) * 0.2;
         hc.mesh.rotation.y += dt * 1.0;
-        const d = Math.hypot(heroGroup.position.x - hc.mesh.position.x, heroGroup.position.z - hc.mesh.position.z);
+        const d = Math.hypot(
+          heroGroup.position.x - hc.mesh.position.x,
+          heroGroup.position.z - hc.mesh.position.z,
+        );
         if (d < 1.0) {
           hc.collected = true;
           st.maxHp += 2;
           st.hp = st.maxHp;
           setHud((h) => ({ ...h, hp: st.hp, maxHp: st.maxHp }));
           showToast("Heart Container — max HP +1");
-          scene.remove(hc.mesh);
+          removeAndDispose(hc.mesh);
           heartContainers.splice(i, 1);
         }
       }
@@ -2129,15 +2639,21 @@ export default function ZeldaGame3D() {
       }
       st.portalCooldown = Math.max(0, st.portalCooldown - dt);
 
-      // Hide forest/overworld visuals when not in the overworld
+      // Hide zone visuals when not in that zone (saves draw calls; prevents seeing other biomes)
       const showOverworld = st.zone === "overworld";
       for (const ov of overworldVisuals) {
         if (ov.visible !== showOverworld) ov.visible = showOverworld;
       }
+      if (dungeonGroup.visible !== (st.zone === "dungeon"))
+        dungeonGroup.visible = st.zone === "dungeon";
+      if (desertGroup.visible !== (st.zone === "desert"))
+        desertGroup.visible = st.zone === "desert";
+      if (skyGroup.visible !== (st.zone === "sky")) skyGroup.visible = st.zone === "sky";
+      if (portalGroup.visible !== showOverworld) portalGroup.visible = showOverworld;
 
       if (st.portalCooldown <= 0) {
         if (st.zone === "overworld") {
-          const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - (-10));
+          const dToPortal = Math.hypot(heroGroup.position.x - 4, heroGroup.position.z - -10);
           if (dToPortal < 1.5) {
             heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
             st.zone = "dungeon";
@@ -2147,7 +2663,10 @@ export default function ZeldaGame3D() {
             showToast("Entered the Hollow Keep");
           }
         } else if (st.zone === "dungeon") {
-          const dExit = Math.hypot(heroGroup.position.x - dungeonOrigin.x, heroGroup.position.z - (dungeonOrigin.z + 14));
+          const dExit = Math.hypot(
+            heroGroup.position.x - dungeonOrigin.x,
+            heroGroup.position.z - (dungeonOrigin.z + 14),
+          );
           if (dExit < 1.5) {
             heroGroup.position.set(4, 0, -7);
             st.zone = "overworld";
@@ -2156,7 +2675,10 @@ export default function ZeldaGame3D() {
             setHud((h) => ({ ...h, zone: "overworld" }));
             showToast("Returned to the Glade");
           }
-          const dDesert = Math.hypot(heroGroup.position.x - dungeonDesertPortal.position.x, heroGroup.position.z - dungeonDesertPortal.position.z);
+          const dDesert = Math.hypot(
+            heroGroup.position.x - dungeonDesertPortal.position.x,
+            heroGroup.position.z - dungeonDesertPortal.position.z,
+          );
           if (dDesert < 1.5) {
             heroGroup.position.set(desertOrigin.x, 0, desertOrigin.z + 10);
             st.zone = "desert";
@@ -2166,9 +2688,16 @@ export default function ZeldaGame3D() {
             showToast("Stepped into the Sun-Scorched Wastes");
           }
         } else if (st.zone === "desert") {
-          const dBack = Math.hypot(heroGroup.position.x - desertReturn.position.x, heroGroup.position.z - desertReturn.position.z);
+          const dBack = Math.hypot(
+            heroGroup.position.x - desertReturn.position.x,
+            heroGroup.position.z - desertReturn.position.z,
+          );
           if (dBack < 1.5) {
-            heroGroup.position.set(dungeonDesertPortal.position.x, 0, dungeonDesertPortal.position.z + 3);
+            heroGroup.position.set(
+              dungeonDesertPortal.position.x,
+              0,
+              dungeonDesertPortal.position.z + 3,
+            );
             st.zone = "dungeon";
             st.portalCooldown = 1.2;
             st.iframes = 0.8;
@@ -2176,7 +2705,10 @@ export default function ZeldaGame3D() {
             showToast("Returned to the Hollow Keep");
           }
         } else if (st.zone === "sky") {
-          const dSkyDun = Math.hypot(heroGroup.position.x - skyToDungeonPortal.position.x, heroGroup.position.z - skyToDungeonPortal.position.z);
+          const dSkyDun = Math.hypot(
+            heroGroup.position.x - skyToDungeonPortal.position.x,
+            heroGroup.position.z - skyToDungeonPortal.position.z,
+          );
           if (dSkyDun < 1.6) {
             heroGroup.position.set(dungeonOrigin.x, 0, dungeonOrigin.z + 10);
             st.zone = "dungeon";
@@ -2186,7 +2718,10 @@ export default function ZeldaGame3D() {
             setHud((h) => ({ ...h, zone: "dungeon" }));
             showToast("Descended to the Hollow Keep");
           }
-          const dSkyDes = Math.hypot(heroGroup.position.x - skyToDesertPortal.position.x, heroGroup.position.z - skyToDesertPortal.position.z);
+          const dSkyDes = Math.hypot(
+            heroGroup.position.x - skyToDesertPortal.position.x,
+            heroGroup.position.z - skyToDesertPortal.position.z,
+          );
           if (dSkyDes < 1.6) {
             heroGroup.position.set(desertOrigin.x, 0, desertOrigin.z + 10);
             st.zone = "desert";
@@ -2201,12 +2736,12 @@ export default function ZeldaGame3D() {
 
       // --- Monsters ---
       // sword reach + hit radius scale with upgrade level
-      const swordReach = 2.2 + st.swordLevel * 0.25;
-      const swordHitRadius = 1.9 + st.swordLevel * 0.18;
+      const sReach = swordReach(st.swordLevel);
+      const sHitRadius = swordHitRadius(st.swordLevel);
       let swordHit: THREE.Vector3 | null = null;
       if (st.attackTimer > 0.05) {
-        const fwd = new THREE.Vector3(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
-        swordHit = heroGroup.position.clone().add(fwd.multiplyScalar(swordReach));
+        tmpFwd.set(Math.sin(heroGroup.rotation.y), 0, Math.cos(heroGroup.rotation.y));
+        swordHit = tmpSwordHit.copy(heroGroup.position).addScaledVector(tmpFwd, sReach);
       }
 
       let nearestNear = "";
@@ -2233,12 +2768,9 @@ export default function ZeldaGame3D() {
         if (m.def.type === "bat") {
           // hover and chase
           m.bobPhase += dt * 4;
-          const baseY = (m as unknown as { baseY?: number }).baseY ?? 0;
-          m.group.position.y = baseY + 1.6 + Math.sin(m.bobPhase) * 0.3;
-          const wL = m.group.getObjectByName("wingL") as THREE.Mesh | undefined;
-          const wR = m.group.getObjectByName("wingR") as THREE.Mesh | undefined;
-          if (wL) wL.rotation.z = Math.sin(m.bobPhase * 4) * 0.8;
-          if (wR) wR.rotation.z = -Math.sin(m.bobPhase * 4) * 0.8;
+          m.group.position.y = m.baseY + 1.6 + Math.sin(m.bobPhase) * 0.3;
+          if (m.wingL) m.wingL.rotation.z = Math.sin(m.bobPhase * 4) * 0.8;
+          if (m.wingR) m.wingR.rotation.z = -Math.sin(m.bobPhase * 4) * 0.8;
           if (dist < 18 && dist > 0.01) {
             m.group.position.x += (dx / dist) * m.def.speed * dt;
             m.group.position.z += (dz / dist) * m.def.speed * dt;
@@ -2263,8 +2795,10 @@ export default function ZeldaGame3D() {
           m.group.rotation.y = Math.atan2(dx, dz);
           if (dist < 18 && m.attackCd <= 0) {
             m.attackCd = 1.8;
-            const orig = new THREE.Vector3(m.group.position.x, 1.8, m.group.position.z);
-            fireProjectile(orig, heroGroup.position.clone().setY(1.2), true, m.def.damage);
+            tmpOrigin.set(m.group.position.x, 1.8, m.group.position.z);
+            tmpTarget.copy(heroGroup.position);
+            tmpTarget.y = 1.2;
+            fireProjectile(tmpOrigin, tmpTarget, true, m.def.damage);
           }
         } else if (m.def.type === "boss") {
           // chase, slam-attack at range
@@ -2278,9 +2812,9 @@ export default function ZeldaGame3D() {
           if (m.attackCd <= 0 && dist < 18) {
             m.attackCd = 2.5;
             for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
-              const orig = new THREE.Vector3(m.group.position.x, 2.0, m.group.position.z);
-              const tgt = orig.clone().add(new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(5));
-              fireProjectile(orig, tgt, true, m.def.damage);
+              tmpOrigin.set(m.group.position.x, 2.0, m.group.position.z);
+              tmpTarget.set(Math.sin(a), 0, Math.cos(a)).multiplyScalar(5).add(tmpOrigin);
+              fireProjectile(tmpOrigin, tmpTarget, true, m.def.damage);
             }
           }
         } else {
@@ -2307,21 +2841,26 @@ export default function ZeldaGame3D() {
         // Sword hit — neon red sword: damage and knockback scale with upgrade level
         if (swordHit) {
           const sd = Math.hypot(swordHit.x - m.group.position.x, swordHit.z - m.group.position.z);
-          if (sd < swordHitRadius && m.hitFlash <= 0) {
-            const swordDmg = (2 + st.swordLevel) * tunic.damageMul; // Lv1=3, Lv5=7
+          if (sd < sHitRadius && m.hitFlash <= 0) {
+            const swordDmg = calcSwordDamage(st.swordLevel, tunic.damageMul); // Lv1=3, Lv5=7
             m.hp -= swordDmg;
             m.hitFlash = 0.18;
-            const k = 2.0 + st.swordLevel * 0.4;
+            const k = swordKnockback(st.swordLevel);
             if (dist > 0.01) {
               m.group.position.x -= (dx / dist) * k;
               m.group.position.z -= (dz / dist) * k;
             }
             if (m.hp <= 0) {
               m.alive = false;
-              scene.remove(m.group);
+              removeAndDispose(m.group);
               st.rupees += m.def.rupees;
               // shard drop: bigger enemies = more shards, boss guaranteed big drop
-              const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+              const shardChance =
+                m.def.type === "boss"
+                  ? 1
+                  : m.def.type === "knight" || m.def.type === "mage"
+                    ? 0.7
+                    : 0.35;
               if (Math.random() < shardChance) {
                 const amt = m.def.type === "boss" ? 5 : 1;
                 st.swordShards += amt;
@@ -2329,7 +2868,7 @@ export default function ZeldaGame3D() {
                 showToast(`+${amt} sword shard${amt > 1 ? "s" : ""}`);
               }
               setHud((h) => ({ ...h, rupees: st.rupees }));
-              if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+              if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z, m.zone);
               if (m.def.type === "boss") {
                 st.bossDefeated = true;
                 setHud((h) => ({ ...h, won: true }));
@@ -2339,15 +2878,21 @@ export default function ZeldaGame3D() {
         }
 
         // Contact damage
-        if (m.alive && st.iframes <= 0 && dist < m.def.contactRange && m.def.type !== "mage" && m.def.type !== "boss") {
-          const dmg = Math.max(1, Math.round(m.def.damage * tunic.damageTaken));
+        if (
+          m.alive &&
+          st.iframes <= 0 &&
+          dist < m.def.contactRange &&
+          m.def.type !== "mage" &&
+          m.def.type !== "boss"
+        ) {
+          const dmg = calcContactDamage(m.def.damage, tunic.damageTaken);
           st.hp = Math.max(0, st.hp - dmg);
           st.iframes = 1.0;
           setHud((h) => ({ ...h, hp: st.hp }));
         }
         // boss melee
         if (m.alive && m.def.type === "boss" && st.iframes <= 0 && dist < m.def.contactRange) {
-          const dmg = Math.max(1, Math.round(m.def.damage * tunic.damageTaken));
+          const dmg = calcContactDamage(m.def.damage, tunic.damageTaken);
           st.hp = Math.max(0, st.hp - dmg);
           st.iframes = 1.0;
           setHud((h) => ({ ...h, hp: st.hp }));
@@ -2359,44 +2904,57 @@ export default function ZeldaGame3D() {
         setHud((h) => ({ ...h, near: nearestNear }));
       }
 
-      // --- Projectiles ---
+      // --- Projectiles (zone-gated) ---
       for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
+        p.mesh.visible = p.zone === st.zone;
+        if (p.zone !== st.zone) continue;
         p.mesh.position.x += p.vel.x * dt;
         p.mesh.position.z += p.vel.z * dt;
         p.life -= dt;
         if (p.fromEnemy && st.iframes <= 0) {
-          const d = Math.hypot(p.mesh.position.x - heroGroup.position.x, p.mesh.position.z - heroGroup.position.z);
+          const d = Math.hypot(
+            p.mesh.position.x - heroGroup.position.x,
+            p.mesh.position.z - heroGroup.position.z,
+          );
           if (d < 0.7) {
-            const dmg = Math.max(1, Math.round(p.damage * tunic.damageTaken));
+            const dmg = calcContactDamage(p.damage, tunic.damageTaken);
             st.hp = Math.max(0, st.hp - dmg);
             st.iframes = 1.0;
             setHud((h) => ({ ...h, hp: st.hp }));
-            scene.remove(p.mesh);
+            removeAndDispose(p.mesh);
             projectiles.splice(i, 1);
             continue;
           }
         } else if (!p.fromEnemy) {
-          // Player arrows damage monsters
+          // Player arrows damage monsters (same zone only)
           let hitMonster = false;
           for (const m of monsters) {
-            if (!m.alive) continue;
-            const d = Math.hypot(p.mesh.position.x - m.group.position.x, p.mesh.position.z - m.group.position.z);
+            if (!m.alive || m.zone !== st.zone) continue;
+            const d = Math.hypot(
+              p.mesh.position.x - m.group.position.x,
+              p.mesh.position.z - m.group.position.z,
+            );
             if (d < 0.8 && m.hitFlash <= 0) {
               m.hp -= p.damage;
               m.hitFlash = 0.18;
               hitMonster = true;
               if (m.hp <= 0) {
                 m.alive = false;
-                scene.remove(m.group);
+                removeAndDispose(m.group);
                 st.rupees += m.def.rupees;
-                const shardChance = m.def.type === "boss" ? 1 : m.def.type === "knight" || m.def.type === "mage" ? 0.7 : 0.35;
+                const shardChance =
+                  m.def.type === "boss"
+                    ? 1
+                    : m.def.type === "knight" || m.def.type === "mage"
+                      ? 0.7
+                      : 0.35;
                 if (Math.random() < shardChance) {
                   const amt = m.def.type === "boss" ? 5 : 1;
                   st.swordShards += amt;
                   setHud((h) => ({ ...h, swordShards: st.swordShards }));
                 }
-                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z);
+                if (Math.random() < 0.45) dropHeart(m.group.position.x, m.group.position.z, m.zone);
                 if (m.def.type === "boss") {
                   st.bossDefeated = true;
                   setHud((h) => ({ ...h, won: true }));
@@ -2407,13 +2965,13 @@ export default function ZeldaGame3D() {
             }
           }
           if (hitMonster) {
-            scene.remove(p.mesh);
+            removeAndDispose(p.mesh);
             projectiles.splice(i, 1);
             continue;
           }
         }
         if (p.life <= 0 || collidesObstacle(p.mesh.position.x, p.mesh.position.z, 0.1)) {
-          scene.remove(p.mesh);
+          removeAndDispose(p.mesh);
           projectiles.splice(i, 1);
         }
       }
@@ -2423,7 +2981,9 @@ export default function ZeldaGame3D() {
         st.hp = st.maxHp;
         st.iframes = 1.5;
         heroGroup.position.set(0, 0, 25);
-        setHud((h) => ({ ...h, hp: st.hp }));
+        st.zone = "overworld";
+        st.flyY = 0;
+        setHud((h) => ({ ...h, hp: st.hp, zone: st.zone }));
         showToast("You faded back to the glade...");
       }
 
@@ -2433,172 +2993,81 @@ export default function ZeldaGame3D() {
       const camRadius = camDist * Math.cos(camPitch);
       const cx = heroGroup.position.x - Math.sin(camYaw) * camRadius;
       const cz = heroGroup.position.z - Math.cos(camYaw) * camRadius;
-      camera.position.lerp(new THREE.Vector3(cx, 1.5 + camHeight, cz), Math.min(1, dt * 8));
+      tmpCamPos.set(cx, 1.5 + camHeight, cz);
+      camera.position.lerp(tmpCamPos, Math.min(1, dt * 8));
       camera.lookAt(heroGroup.position.x, 1.2, heroGroup.position.z);
 
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
     }
 
+    // Pause when tab hidden (rAF already stops, but reset clock so dt doesn't spike)
+    const onVisPause = () => {
+      paused = document.hidden;
+      if (!paused) clock.getDelta();
+    };
+    document.addEventListener("visibilitychange", onVisPause);
+    // WebGL context-loss recovery
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+    };
+    const onContextRestored = () => {
+      clock.getDelta();
+    };
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", onContextRestored);
+
     raf = requestAnimationFrame(frame);
 
-    // Resize
+    // Resize — window + container (ResizeObserver covers orientation/layout changes)
     const onResize = () => {
       const w = mount.clientWidth;
       const h = mount.clientHeight;
+      if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     window.addEventListener("resize", onResize);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
+    ro?.observe(mount);
 
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
-      window.removeEventListener("mouseup", onMU);
-      window.removeEventListener("mousemove", onMM);
       window.removeEventListener("resize", onResize);
-      renderer.domElement.removeEventListener("mousedown", onMD);
-      mount.removeChild(renderer.domElement);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", onVisPause);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+      ro?.disconnect();
+      // Dispose the entire scene graph (geometries + materials) to free GPU memory
+      disposeObject(scene);
+      if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
       renderer.dispose();
+      rendererRef.current = null;
+      heroBodyMatRef.current = null;
+      heroAccentMatRef.current = null;
+      heroTrimMatRef.current = null;
+      dragonFormRef.current = () => {};
     };
   }, [showToast]);
 
-  // touch buttons (movement handled via simulated keys)
-  const press = (k: string) => {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: k }));
-  };
-  const release = (k: string) => {
-    window.dispatchEvent(new KeyboardEvent("keyup", { key: k }));
-  };
-
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {/* HUD bar */}
-      <div className="flex items-center justify-between w-full max-w-[960px] px-2">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-xs uppercase tracking-[0.3em] text-muted-foreground">
-            {hud.near || "The Glade"}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-0.5">
-            {Array.from({ length: hud.maxHp / 2 }).map((_, i) => {
-              const filled = hud.hp >= (i + 1) * 2;
-              const half = !filled && hud.hp >= i * 2 + 1;
-              return (
-                <div key={i} className="relative h-4 w-4">
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      background: filled
-                        ? "var(--heart)"
-                        : half
-                        ? "linear-gradient(90deg, var(--heart) 50%, var(--stone-dark) 50%)"
-                        : "var(--stone-dark)",
-                      clipPath:
-                        "polygon(50% 100%, 0 35%, 0 15%, 20% 0, 50% 20%, 80% 0, 100% 15%, 100% 35%)",
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <span className="font-mono text-xs text-foreground">◆ {hud.rupees}</span>
-          <span className="font-mono text-xs" style={{ color: "#ff4a5c", textShadow: "0 0 8px #ff1a2b" }}>
-            ⚔ Lv {hud.swordLevel} · ✦ {hud.swordShards}
-          </span>
-          <span className="font-mono text-xs" style={{ color: hud.weapon === "bow" ? "#ffd24a" : "#aaaaaa" }}>
-            {hud.weapon === "bow" ? "🏹 Bow" : "⚔ Sword"} · ➳ {hud.arrows}
-          </span>
-        </div>
-      </div>
-
-      {/* 3D viewport */}
-      <div
-        ref={mountRef}
-        className="relative w-full max-w-[960px] aspect-[16/9] rounded-md overflow-hidden"
-        style={{ boxShadow: "0 0 0 4px var(--stone-dark), 0 30px 80px -20px rgba(0,0,0,0.7)" }}
-      >
-        {hud.won && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-            <div className="text-center">
-              <p className="font-mono text-xs uppercase tracking-[0.4em] text-muted-foreground">
-                The Guardian falls
-              </p>
-              <h2 className="mt-2 text-3xl font-light tracking-wide text-foreground">
-                The lake is yours
-              </h2>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {hud.toast && (
-        <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-foreground bg-card/80 px-3 py-1.5 rounded border border-border animate-fade-in">
-          {hud.toast}
-        </div>
-      )}
-
-      {/* Wardrobe */}
-      <div className="w-full max-w-[960px]">
-        <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground mb-2 text-center">
-          Wardrobe
-        </div>
-        <div className="grid grid-cols-6 gap-2">
-          {(Object.keys(TUNICS) as TunicId[]).map((id, i) => {
-            const t = TUNICS[id];
-            const owned = hud.inventory.includes(id);
-            const equipped = hud.tunic === id;
-            const hex = (n: number) => "#" + n.toString(16).padStart(6, "0");
-            return (
-              <button
-                key={id}
-                onClick={() => owned && equipFnRef.current(id)}
-                disabled={!owned}
-                className={[
-                  "group relative flex flex-col items-center gap-1 rounded p-2 border transition-all",
-                  equipped
-                    ? "border-foreground bg-card"
-                    : owned
-                    ? "border-border bg-card/60 hover:border-foreground/60 hover:bg-card cursor-pointer"
-                    : "border-border/40 bg-card/30 opacity-50 cursor-not-allowed",
-                ].join(" ")}
-                title={owned ? `${t.name} — ${t.perk}` : "Not yet found"}
-              >
-                <div className="relative h-10 w-8">
-                  <div className="absolute inset-x-1 top-1 h-2 rounded-sm" style={{ background: owned ? hex(t.trim) : "var(--stone-dark)" }} />
-                  <div className="absolute inset-x-0 top-3 bottom-0 rounded-sm" style={{ background: owned ? hex(t.body) : "var(--stone-dark)" }} />
-                  <div className="absolute left-1/2 -translate-x-1/2 top-6 h-1.5 w-4 rounded-sm" style={{ background: owned ? hex(t.accent) : "transparent" }} />
-                </div>
-                <span className="font-mono text-[9px] uppercase tracking-wider text-foreground/80 truncate w-full">
-                  {owned ? t.name.split(" ")[0] : "???"}
-                </span>
-                <span className="absolute top-1 right-1 font-mono text-[8px] text-muted-foreground">{i + 1}</span>
-                {equipped && <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-foreground" />}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-          {TUNICS[hud.tunic].name} · {TUNICS[hud.tunic].perk}
-        </p>
-      </div>
-
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground text-center">
-        WASD/Arrows move · Space sword · B arrow · F dragon fire · Shift flap (×6 → Sky) · U upgrade · 1–6 tunic · Drag orbit
-      </div>
-
-      {/* Mobile controls */}
-      <div className="md:hidden grid grid-cols-3 gap-2 mt-2 select-none w-48">
-        <div />
-        <button className="aspect-square rounded bg-card text-foreground/80 active:bg-accent" onTouchStart={() => press("w")} onTouchEnd={() => release("w")}>▲</button>
-        <button className="aspect-square rounded bg-[var(--hero-accent)] text-foreground row-span-2" onTouchStart={() => press(" ")} onTouchEnd={() => release(" ")}>⚔</button>
-        <button className="aspect-square rounded bg-card text-foreground/80 active:bg-accent" onTouchStart={() => press("a")} onTouchEnd={() => release("a")}>◀</button>
-        <button className="aspect-square rounded bg-card text-foreground/80 active:bg-accent" onTouchStart={() => press("s")} onTouchEnd={() => release("s")}>▼</button>
-        <button className="aspect-square rounded bg-card text-foreground/80 active:bg-accent col-start-1 row-start-3" onTouchStart={() => press("d")} onTouchEnd={() => release("d")}>▶</button>
-      </div>
-    </div>
+    <GameHud
+      hud={hud}
+      mountRef={mountRef}
+      equipFnRef={equipFnRef}
+      webglError={webglError}
+      ready={ready}
+      quality={quality}
+      setQuality={setQuality}
+    />
   );
 }
